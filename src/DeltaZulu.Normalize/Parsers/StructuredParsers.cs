@@ -91,7 +91,11 @@ internal static class StructuredParsers
         if (!JsonText.TryParseValue(npb.Str, i, out JsonNode? json, out int consumed))
             return ErrorCodes.WrongParser;
 
-        parsed = i + consumed - offs;
+        i += consumed;
+        while (i < npb.StrLen && TextRules.IsSpace(npb.Str[i]))
+            ++i;
+
+        parsed = i - offs;
 
         if (wantValue)
         {

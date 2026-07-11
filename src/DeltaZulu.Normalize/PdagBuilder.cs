@@ -90,8 +90,7 @@ internal static class PdagBuilder
         /* remove processed items so the remainder can go to the parser's construct */
         prscnf.Remove("type");
         prscnf.Remove("priority");
-        if (name != null)
-            prscnf.Remove("name");
+        prscnf.Remove("name");
 
         var node = new ParserInstance
         {
@@ -132,6 +131,7 @@ internal static class PdagBuilder
         {
             if (existing.PrsId == parser.PrsId && existing.Conf == parser.Conf)
             {
+                existing.Node.RefCount++;
                 nextnode = existing.Node;
                 return 0;
             }

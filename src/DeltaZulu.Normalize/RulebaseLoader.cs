@@ -532,7 +532,7 @@ internal static class RulebaseLoader
     /// leading '%'. Supports the "full JSON" form (a raw JSON object/array
     /// directly after '%') and the legacy/condensed "name:type{params}" form.
     /// </summary>
-    private static bool AddFieldDescr(LogNormContext ctx, ref Pdag pdag, string rule, ref int i)
+    private static int AddFieldDescr(LogNormContext ctx, ref Pdag pdag, string rule, ref int i)
     {
         ++i; /* eat '%' */
         while (i < rule.Length && char.IsWhiteSpace(rule[i]))
@@ -545,18 +545,18 @@ internal static class RulebaseLoader
                 || config == null || i + consumed >= rule.Length || rule[i + consumed] != '%')
             {
                 ctx.Error($"invalid json in '{rule[i..]}'");
-                return false;
+                return ErrorCodes.BadConfig;
             }
             i += consumed + 1; /* also eat the closing '%' */
         }
         else
         {
             if (!ParseLegacyFieldDescr(ctx, rule, ref i, out JsonObject? legacyCfg))
-                return false;
+                return ErrorCodes.BadConfig;
             config = legacyCfg;
         }
 
-        return PdagBuilder.AddParser(ctx, ref pdag, config!) == 0;
+        return PdagBuilder.AddParser(ctx, ref pdag, config!);
     }
 
     /// <summary>
@@ -574,8 +574,9 @@ internal static class RulebaseLoader
                 return r;
             if (i < rule.Length)
             {
-                if (!AddFieldDescr(ctx, ref dag, rule, ref i))
-                    return 1;
+                r = AddFieldDescr(ctx, ref dag, rule, ref i);
+                if (r != 0)
+                    return r;
                 if (i == rule.Length)
                 {
                     /* finish with an empty literal to avoid false merging with a

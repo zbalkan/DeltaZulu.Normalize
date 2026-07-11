@@ -178,10 +178,12 @@ internal static class Normalizer
                 continue;
 
             int i = offs;
+            int attemptParsedTo = offs;
             int localR = TryParser(npb, dag, ref i, ref parsed, ref value, prs, failOnDuplicate, json, prs.Name);
             if (localR == 0)
             {
                 parsedTo = i + parsed;
+                attemptParsedTo = parsedTo;
                 /* potential hit, need to verify by walking the subtree */
                 r = NormalizeRec(npb, prs.Node, parsedTo, bPartialMatch, json, ref endNode,
                     failOnDuplicate, curJson, parserName);
@@ -202,13 +204,22 @@ internal static class Normalizer
             }
             value = null; /* discard any uncommitted extraction */
 
-            if (parsedTo > npb.LongestParsedTo)
-                npb.LongestParsedTo = parsedTo;
+            if (attemptParsedTo > npb.LongestParsedTo)
+                npb.LongestParsedTo = attemptParsedTo;
         }
 
-        if (dag.IsTerminal && (offs == npb.StrLen || bPartialMatch))
+        /* A terminal node may also have outgoing continuation parsers when
+         * multiple rules share a prefix. Continuations must be tried first;
+         * the terminal is the fallback when no child path matched. Still
+         * update ParsedTo here: custom-type parsers compute their consumed
+         * length from this value after their nested NormalizeRec call. */
+        if (r != 0 && dag.IsTerminal && (offs == npb.StrLen || bPartialMatch))
         {
             endNode = dag;
+            if (offs > npb.ParsedTo)
+                npb.ParsedTo = offs;
+            if (offs > npb.LongestParsedTo)
+                npb.LongestParsedTo = offs;
             r = 0;
         }
         return r;
