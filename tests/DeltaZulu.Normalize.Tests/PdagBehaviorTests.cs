@@ -20,7 +20,7 @@ public class PdagBehaviorTests
         const string rb = """
             rule=:a %{"name":"numbers", "type":"repeat", "parser": {"name":"n", "type":"number"}, "while": {"type":"literal", "text":", "} }% b %w:word%
             """;
-        var (r, j) = Normalize(rb, "a 1, 2, 3, 4 b test");
+        var (r, j) = TestHelpers.Normalize(rb, "a 1, 2, 3, 4 b test");
         Assert.AreEqual(0, r);
         AssertJsonEquals("""
             { "w": "test", "numbers": [ { "n": "1" }, { "n": "2" }, { "n": "3" }, { "n": "4" } ] }
@@ -36,7 +36,7 @@ public class PdagBehaviorTests
                 "while":[ {"type":"literal", "text":", "} ]
                }% b %w:word%
             """;
-        var (r, j) = Normalize(rb, "a 1:2, 3:4, 5:6, 7:8 b test");
+        var (r, j) = TestHelpers.Normalize(rb, "a 1:2, 3:4, 5:6, 7:8 b test");
         Assert.AreEqual(0, r);
         AssertJsonEquals("""
             { "w": "test", "numbers": [ { "n2": "2", "n1": "1" }, { "n2": "4", "n1": "3" },
@@ -56,7 +56,7 @@ public class PdagBehaviorTests
                 "parser": {"name":"n", "type":"char-sep", "extradata":","},
                 "while": {"type":"char-sep", "extradata":","} }% b
             """;
-        var task = System.Threading.Tasks.Task.Run(() => Normalize(rb, "a ,b"));
+        var task = System.Threading.Tasks.Task.Run(() => TestHelpers.Normalize(rb, "a ,b"));
         Assert.IsTrue(task.Wait(System.TimeSpan.FromSeconds(5)), "repeat parser hung instead of terminating");
     }
 
@@ -66,8 +66,8 @@ public class PdagBehaviorTests
         const string rb = """
             rule=:a %{"type":"alternative", "parser":[{"name":"num", "type":"number"}, {"name":"hex", "type":"hexnumber"}]}% b
             """;
-        AssertJsonEquals("""{ "num": "4711" }""", Normalize(rb, "a 4711 b").Json);
-        AssertJsonEquals("""{ "hex": "0x4711" }""", Normalize(rb, "a 0x4711 b").Json);
+        AssertJsonEquals("""{ "num": "4711" }""", TestHelpers.Normalize(rb, "a 4711 b").Json);
+        AssertJsonEquals("""{ "hex": "0x4711" }""", TestHelpers.Normalize(rb, "a 0x4711 b").Json);
     }
 
     [TestMethod]
@@ -78,10 +78,10 @@ public class PdagBehaviorTests
             type=@IPaddr:%ip:ipv6%
             rule=:an ip address %.:@IPaddr%
             """;
-        AssertJsonEquals("""{ "ip": "10.0.0.1" }""", Normalize(rb, "an ip address 10.0.0.1").Json);
-        AssertJsonEquals("""{ "ip": "127::1" }""", Normalize(rb, "an ip address 127::1").Json);
+        AssertJsonEquals("""{ "ip": "10.0.0.1" }""", TestHelpers.Normalize(rb, "an ip address 10.0.0.1").Json);
+        AssertJsonEquals("""{ "ip": "127::1" }""", TestHelpers.Normalize(rb, "an ip address 127::1").Json);
         AssertJsonEquals("""{ "ip": "2001:DB8:0:1::10:1FF" }""",
-            Normalize(rb, "an ip address 2001:DB8:0:1::10:1FF").Json);
+            TestHelpers.Normalize(rb, "an ip address 2001:DB8:0:1::10:1FF").Json);
     }
 
     [TestMethod]
@@ -92,8 +92,8 @@ public class PdagBehaviorTests
             type=@IPaddr:%..:ipv6%
             rule=:an ip address %ip:@IPaddr%
             """;
-        AssertJsonEquals("""{ "ip": "10.0.0.1" }""", Normalize(rb, "an ip address 10.0.0.1").Json);
-        AssertJsonEquals("""{ "ip": "127::1" }""", Normalize(rb, "an ip address 127::1").Json);
+        AssertJsonEquals("""{ "ip": "10.0.0.1" }""", TestHelpers.Normalize(rb, "an ip address 10.0.0.1").Json);
+        AssertJsonEquals("""{ "ip": "127::1" }""", TestHelpers.Normalize(rb, "an ip address 127::1").Json);
     }
 
     [TestMethod]
@@ -110,11 +110,11 @@ public class PdagBehaviorTests
          * (the reference lognormalizer CLI strips it by default; -T re-enables it
          * — since we're testing the library API directly, it is always present). */
         AssertJsonEquals("""{ "tag": "TAG", "event.tags": ["WIN"], "annot1": "WIN" }""",
-            Normalize(rb, "<37>1 2016-11-03T23:59:59+03:00 server.example.net TAG . - -").Json);
+            TestHelpers.Normalize(rb, "<37>1 2016-11-03T23:59:59+03:00 server.example.net TAG . - -").Json);
         AssertJsonEquals("""{ "tag": "TAG", "event.tags": ["ABC"], "annot2": "ABC" }""",
-            Normalize(rb, "<37>1 2016-11-03T23:59:59+03:00 server.example.net TAG + - -").Json);
+            TestHelpers.Normalize(rb, "<37>1 2016-11-03T23:59:59+03:00 server.example.net TAG + - -").Json);
         AssertJsonEquals("""{ "tag": "TAG", "event.tags": ["ABC", "WIN"], "annot1": "WIN", "annot2": "ABC" }""",
-            Normalize(rb, "<6>1 2016-09-02T07:41:07+02:00 server.example.net TAG - - -").Json);
+            TestHelpers.Normalize(rb, "<6>1 2016-09-02T07:41:07+02:00 server.example.net TAG - - -").Json);
     }
 
     [TestMethod]
@@ -124,8 +124,8 @@ public class PdagBehaviorTests
             rule=:a word %w1:word%
             rule=:a word %w1:word% another word %w2:word%
             """;
-        AssertJsonEquals("""{ "w2": "w2", "w1": "w1" }""", Normalize(rb, "a word w1 another word w2").Json);
-        AssertJsonEquals("""{ "w1": "w1" }""", Normalize(rb, "a word w1").Json);
+        AssertJsonEquals("""{ "w2": "w2", "w1": "w1" }""", TestHelpers.Normalize(rb, "a word w1 another word w2").Json);
+        AssertJsonEquals("""{ "w1": "w1" }""", TestHelpers.Normalize(rb, "a word w1").Json);
     }
 
     [TestMethod]
@@ -144,17 +144,17 @@ public class PdagBehaviorTests
          * which is why its fixture omits it (verified against the C reference binary). */
         AssertJsonEquals(
             """{ "tail": "", "label2": "40.30.20.10/35", "port": "35", "ip": "10.20.30.40", "iface": "Outside" }""",
-            Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35)").Json);
+            TestHelpers.Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35)").Json);
 
         AssertJsonEquals(
             """{ "tail": " with rest", "label2": "40.30.20.10/35", "port": "35", "ip": "10.20.30.40", "iface": "Outside" }""",
-            Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35) with rest").Json);
+            TestHelpers.Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35) with rest").Json);
 
         AssertJsonEquals(
             """{ "tail": " (40.30.20.10/35 brace missing", "port": "35", "ip": "10.20.30.40", "iface": "Outside" }""",
-            Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35 brace missing").Json);
+            TestHelpers.Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35 brace missing").Json);
 
-        var (r, j) = Normalize(rb, "Outside:10.20.30.40/aa 40.30.20.10/35");
+        var (r, j) = TestHelpers.Normalize(rb, "Outside:10.20.30.40/aa 40.30.20.10/35");
         Assert.AreNotEqual(0, r);
         AssertJsonEquals("""
             { "originalmsg": "Outside:10.20.30.40/aa 40.30.20.10/35", "unparsed-data": "aa 40.30.20.10/35" }
@@ -166,7 +166,7 @@ public class PdagBehaviorTests
     {
         string rb = "prefix=%timestamp:date-rfc3164% %hostname:word% \n" +
                     "rule=:hello %name:word%";
-        var (r, j) = Normalize(rb, "Aug 18 13:18:45 myhost hello world");
+        var (r, j) = TestHelpers.Normalize(rb, "Aug 18 13:18:45 myhost hello world");
         Assert.AreEqual(0, r);
         AssertJsonEquals("""
             { "timestamp": "Aug 18 13:18:45", "hostname": "myhost", "name": "world" }
@@ -176,7 +176,7 @@ public class PdagBehaviorTests
     [TestMethod]
     public void AddRuleOption_AttachesMockupRuleMetadata()
     {
-        var (r, j) = Normalize("rule=:hello %name:word%", "hello world", LogNormOptions.AddRule);
+        var (r, j) = TestHelpers.Normalize("rule=:hello %name:word%", "hello world", LogNormOptions.AddRule);
         Assert.AreEqual(0, r);
         Assert.AreEqual("hello %name:word%", j["metadata"]!["rule"]!["mockup"]!.GetValue<string>());
     }

@@ -14,11 +14,11 @@ public class BasicParserTests
     public void Number_ExtractsDigitsAndFailsOnTrailingLetters()
     {
         const string rb = "rule=:here is a number %num:number% in dec form";
-        var (r1, j1) = Normalize(rb, "here is a number 1234 in dec form");
+        var (r1, j1) = TestHelpers.Normalize(rb, "here is a number 1234 in dec form");
         Assert.AreEqual(0, r1);
         AssertJsonEquals("""{"num": "1234"}""", j1);
 
-        var (r2, j2) = Normalize(rb, "here is a number 1234in dec form");
+        var (r2, j2) = TestHelpers.Normalize(rb, "here is a number 1234in dec form");
         Assert.AreNotEqual(0, r2);
         AssertJsonEquals("""
             { "originalmsg": "here is a number 1234in dec form", "unparsed-data": "in dec form" }
@@ -31,7 +31,7 @@ public class BasicParserTests
     [DataRow("here is another real number %num:float%.", "here is another real number 2.71.", "2.71")]
     public void Float_ExtractsDecimalValue(string pattern, string message, string expected)
     {
-        var (r, j) = Normalize($"rule=:{pattern}", message);
+        var (r, j) = TestHelpers.Normalize($"rule=:{pattern}", message);
         Assert.AreEqual(0, r);
         AssertJsonEquals($$"""{"num": "{{expected}}"}""", j);
     }
@@ -40,11 +40,11 @@ public class BasicParserTests
     public void HexNumber_RequiresWhitespaceTerminator()
     {
         const string rb = "rule=:here is a number %num:hexnumber% in hex form";
-        var (r1, j1) = Normalize(rb, "here is a number 0x1234 in hex form");
+        var (r1, j1) = TestHelpers.Normalize(rb, "here is a number 0x1234 in hex form");
         Assert.AreEqual(0, r1);
         AssertJsonEquals("""{"num": "0x1234"}""", j1);
 
-        var (r2, j2) = Normalize(rb, "here is a number 0x1234in hex form");
+        var (r2, j2) = TestHelpers.Normalize(rb, "here is a number 0x1234in hex form");
         Assert.AreNotEqual(0, r2);
         AssertJsonEquals("""
             { "originalmsg": "here is a number 0x1234in hex form", "unparsed-data": "0x1234in hex form" }
@@ -65,7 +65,7 @@ public class BasicParserTests
     [DataRow("::FFFF:129.144.52.38")]
     public void IPv6_AcceptsRfc4291Examples(string addr)
     {
-        var (r, j) = Normalize("rule=:%f:ipv6%", addr);
+        var (r, j) = TestHelpers.Normalize("rule=:%f:ipv6%", addr);
         Assert.AreEqual(0, r);
         AssertJsonEquals($$"""{ "f": "{{addr}}" }""", j);
     }
@@ -78,14 +78,14 @@ public class BasicParserTests
     [DataRow("13.1.68.3")] // pure IPv4 address must not match
     public void IPv6_RejectsInvalidAddresses(string addr)
     {
-        var (r, _) = Normalize("rule=:%f:ipv6%", addr);
+        var (r, _) = TestHelpers.Normalize("rule=:%f:ipv6%", addr);
         Assert.AreNotEqual(0, r);
     }
 
     [TestMethod]
     public void IPv6_RejectsTooManyBlocksButReportsPartialUnparsed()
     {
-        var (r, j) = Normalize("rule=:%f:ipv6%", "ABCD:EF01:2345:6789:ABCD:EF01:2345:1:6798");
+        var (r, j) = TestHelpers.Normalize("rule=:%f:ipv6%", "ABCD:EF01:2345:6789:ABCD:EF01:2345:1:6798");
         Assert.AreNotEqual(0, r);
         AssertJsonEquals("""
             {"originalmsg": "ABCD:EF01:2345:6789:ABCD:EF01:2345:1:6798", "unparsed-data": ":6798" }
@@ -97,7 +97,7 @@ public class BasicParserTests
     [DataRow("f0-f6-1c-5f-cc-a2")]
     public void Mac48_AcceptsColonAndHyphenDelimited(string mac)
     {
-        var (r, j) = Normalize("rule=:%field:mac48%", mac);
+        var (r, j) = TestHelpers.Normalize("rule=:%field:mac48%", mac);
         Assert.AreEqual(0, r);
         AssertJsonEquals($$"""{"field": "{{mac}}"}""", j);
     }
@@ -107,7 +107,7 @@ public class BasicParserTests
     [DataRow("f0:f6:1c:xf:cc:a2")] // non-hex digit
     public void Mac48_RejectsMalformed(string mac)
     {
-        var (r, _) = Normalize("rule=:%field:mac48%", mac);
+        var (r, _) = TestHelpers.Normalize("rule=:%field:mac48%", mac);
         Assert.AreNotEqual(0, r);
     }
 
@@ -123,7 +123,7 @@ public class BasicParserTests
             rule=:duration %field:duration% bytes
             rule=:duration %field:duration%
             """;
-        var (r, j) = Normalize(rb, message);
+        var (r, j) = TestHelpers.Normalize(rb, message);
         Assert.AreEqual(0, r);
         AssertJsonEquals($$"""{"field": "{{expected}}"}""", j);
     }
@@ -135,7 +135,7 @@ public class BasicParserTests
             rule=:duration %field:duration% bytes
             rule=:duration %field:duration%
             """;
-        var (r, j) = Normalize(rb, "duration 37:60:42 bytes");
+        var (r, j) = TestHelpers.Normalize(rb, "duration 37:60:42 bytes");
         Assert.AreNotEqual(0, r);
         Assert.AreEqual("37:60:42 bytes", j["unparsed-data"]!.GetValue<string>());
     }
@@ -144,10 +144,10 @@ public class BasicParserTests
     public void QuotedString_StripsOuterQuotes()
     {
         const string rb = "rule=:%f:quoted-string%";
-        AssertJsonEquals("""{ "f": "alpha beta" }""", Normalize(rb, "\"alpha beta\"").Json);
-        AssertJsonEquals("""{ "f": "" }""", Normalize(rb, "\"\"").Json);
+        AssertJsonEquals("""{ "f": "alpha beta" }""", TestHelpers.Normalize(rb, "\"alpha beta\"").Json);
+        AssertJsonEquals("""{ "f": "" }""", TestHelpers.Normalize(rb, "\"\"").Json);
 
-        var (r, j) = Normalize(rb, "\"unterminated");
+        var (r, j) = TestHelpers.Normalize(rb, "\"unterminated");
         Assert.AreNotEqual(0, r);
         AssertJsonEquals("""
             { "originalmsg": "\"unterminated", "unparsed-data": "\"unterminated" }
@@ -169,11 +169,11 @@ public class BasicParserTests
         /* \xHH escapes mirror libestr byte escapes: each escaped byte becomes
          * one char with that byte value, even if the byte run is not valid or
          * complete UTF-8. */
-        var (r, j) = Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "caf\u00C3\u00A9 bar");
+        var (r, j) = TestHelpers.Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "caf\u00C3\u00A9 bar");
         Assert.AreEqual(0, r);
         AssertJsonEquals("""{ "f": "bar" }""", j);
 
-        Assert.AreNotEqual(0, Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "café bar").Result);
+        Assert.AreNotEqual(0, TestHelpers.Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "café bar").Result);
     }
 
     [TestMethod]
