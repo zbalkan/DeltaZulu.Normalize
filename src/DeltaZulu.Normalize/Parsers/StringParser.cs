@@ -176,6 +176,12 @@ internal static class StringParser
             {
                 if (val is JsonValue jv && jv.TryGetValue(out bool b))
                     data.DashIsEmpty = b;
+                else
+                {
+                    ctx.Error($"option.dashIsEmpty is invalid object type, given as '{JsonText.ToCompactString(val)}'");
+                    pdata = null;
+                    return ErrorCodes.BadConfig;
+                }
             }
             else
             {

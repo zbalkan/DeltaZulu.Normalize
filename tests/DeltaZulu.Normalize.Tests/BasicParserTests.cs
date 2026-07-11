@@ -164,12 +164,27 @@ public class BasicParserTests
     }
 
     [TestMethod]
-    public void Literal_DecodesMultiByteUtf8HexEscapeAsOneCodepoint()
+    public void Literal_PreservesHexEscapesAsRawByteChars()
     {
-        /* "\xC3\xA9" is the two-byte UTF-8 encoding of U+00E9 (é); each byte
-         * must combine into that single codepoint, not two separate chars */
-        var (r, j) = Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "café bar");
+        /* \xHH escapes mirror libestr byte escapes: each escaped byte becomes
+         * one char with that byte value, even if the byte run is not valid or
+         * complete UTF-8. */
+        var (r, j) = Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "caf\u00C3\u00A9 bar");
         Assert.AreEqual(0, r);
         AssertJsonEquals("""{ "f": "bar" }""", j);
+
+        Assert.AreNotEqual(0, Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "café bar").Result);
+    }
+
+    [TestMethod]
+    public void StringParser_RejectsNonBooleanDashIsEmpty()
+    {
+        var errors = new List<string>();
+        var ctx = new LogNormContext { ErrorCallback = errors.Add };
+
+        int r = ctx.LoadSamplesFromString("""rule=:%f:string{"option.dashIsEmpty":"true"}%""");
+
+        Assert.AreEqual(ErrorCodes.BadConfig, r);
+        Assert.IsTrue(errors.Any(e => e.Contains("option.dashIsEmpty", StringComparison.Ordinal)));
     }
 }

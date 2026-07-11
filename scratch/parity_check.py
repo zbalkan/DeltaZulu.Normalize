@@ -28,7 +28,7 @@ SKIP_SUBSTR = ["_v1.sh", "turbo", "err_callback", "very_long_logline"]
 # .sh fixture); MULTILINE so ^/$ still anchor per line for the leading
 # whitespace and trailing inline-comment parts of the match.
 CALL_RE = re.compile(
-    r"""^[ \t]*(?:(reset_rules)\b|(add_rule|execute|execute_with_string)\s+(['"])(.*?)\3\s*(?:\#.*)?$)""",
+    r"""^[ \t]*(?:(reset_rules)\b[ \t]*(?:\#[^\n]*)?$|(add_rule|execute|execute_with_string)\s+(['"])(.*?)\3[ \t]*(?:\#[^\n]*)?$)""",
     re.MULTILINE | re.DOTALL,
 )
 

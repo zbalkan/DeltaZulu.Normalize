@@ -25,4 +25,19 @@ public class LogNormContextTests
         Assert.AreEqual(0, ctx.Normalize("abd world", out JsonObject j2));
         Assert.AreEqual("world", j2["f"]!.GetValue<string>());
     }
+
+    [TestMethod]
+    public void LoadSamplesFromString_AfterNormalize_IsRejected()
+    {
+        var errors = new List<string>();
+        var ctx = new LogNormContext { ErrorCallback = errors.Add };
+        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:abc %f:rest%"));
+        Assert.AreEqual(0, ctx.Normalize("abc hello", out JsonObject _));
+
+        int r = ctx.LoadSamplesFromString("rule=:abd %f:rest%");
+
+        Assert.AreEqual(ErrorCodes.BadConfig, r);
+        Assert.IsTrue(errors.Any(e => e.Contains("cannot be loaded after", StringComparison.Ordinal)));
+    }
+
 }

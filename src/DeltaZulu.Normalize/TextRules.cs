@@ -66,19 +66,8 @@ internal static class TextRules
                 case 'x':
                     if (i + 3 < s.Length && IsHexDigit(s[i + 2]) && IsHexDigit(s[i + 3]))
                     {
-                        /* collect a run of consecutive \xHH escapes and
-                         * UTF-8-decode them together, since a single Unicode
-                         * codepoint (e.g. \xC3\xA9 for "é") is split across
-                         * multiple escapes; decoding each byte independently
-                         * as its own char would mangle non-ASCII text */
-                        var bytes = new List<byte>();
-                        while (i + 3 < s.Length && s[i] == '\\' && s[i + 1] == 'x'
-                               && IsHexDigit(s[i + 2]) && IsHexDigit(s[i + 3]))
-                        {
-                            bytes.Add((byte)(HexVal(s[i + 2]) * 16 + HexVal(s[i + 3])));
-                            i += 4;
-                        }
-                        sb.Append(Encoding.UTF8.GetString(bytes.ToArray()));
+                        sb.Append((char)(HexVal(s[i + 2]) * 16 + HexVal(s[i + 3])));
+                        i += 4;
                     }
                     else
                     {

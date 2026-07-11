@@ -43,6 +43,7 @@ public sealed class LogNormContext
     internal string? ConfFile;
     internal int ConfLineNumber;
 
+    private readonly object _pdagLock = new();
     private bool _pdagOptimized;
 
     /// <summary>
@@ -55,10 +56,27 @@ public sealed class LogNormContext
     /// </summary>
     internal void EnsureOptimized()
     {
-        if (!_pdagOptimized)
+        lock (_pdagLock)
         {
-            _pdagOptimized = true;
+            if (_pdagOptimized)
+                return;
+
             PdagBuilder.Optimize(this);
+            _pdagOptimized = true;
+        }
+    }
+
+    private int LoadWhileUnoptimized(Func<int> load)
+    {
+        lock (_pdagLock)
+        {
+            if (_pdagOptimized)
+            {
+                Error("rulebases cannot be loaded after the context has been optimized by Normalize or GenerateDot");
+                return ErrorCodes.BadConfig;
+            }
+
+            return load();
         }
     }
 
@@ -67,14 +85,14 @@ public sealed class LogNormContext
     /// Rules are added to whatever has been loaded before.
     /// </summary>
     /// <returns>0 on success, non-zero otherwise</returns>
-    public int LoadSamples(string path) => RulebaseLoader.LoadFile(this, path);
+    public int LoadSamples(string path) => LoadWhileUnoptimized(() => RulebaseLoader.LoadFile(this, path));
 
     /// <summary>
     /// Load rulebase content from a string. The string must contain the rule
     /// lines only, without the "version=2" header.
     /// </summary>
     /// <returns>0 on success, non-zero otherwise</returns>
-    public int LoadSamplesFromString(string rulebase) => RulebaseLoader.LoadString(this, rulebase);
+    public int LoadSamplesFromString(string rulebase) => LoadWhileUnoptimized(() => RulebaseLoader.LoadString(this, rulebase));
 
     /// <summary>
     /// Normalize a message against the loaded rulebase.
