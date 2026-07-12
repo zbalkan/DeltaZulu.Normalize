@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using DeltaZulu.Normalize;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace DeltaZulu.Normalize.Tests;
@@ -37,7 +36,7 @@ public class DirectoryRulebaseTests
 
     private string WriteRulebase(string relativePath, string body)
     {
-        string path = Path.Combine(_root, relativePath);
+        var path = Path.Combine(_root, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, "version=2\n" + body);
         return path;
@@ -48,7 +47,7 @@ public class DirectoryRulebaseTests
 
     private static void AssertMatches(LogNormContext ctx, string message, string field, string expected)
     {
-        int r = ctx.Normalize(message, out JsonObject json);
+        var r = ctx.Normalize(message, out JsonObject json);
         Assert.AreEqual(0, r, $"message did not normalize: '{message}' -> {json.ToJsonString()}");
         TestHelpers.AssertJsonContains(json, field, expected);
     }
@@ -180,7 +179,7 @@ public class DirectoryRulebaseTests
     {
         WriteRulebase("extra/one.rulebase", "rule=:extra one %a:word%\n");
         WriteRulebase("extra/two.rulebase", "rule=:extra two %b:word%\n");
-        string main = WriteRulebase("main.rulebase",
+        var main = WriteRulebase("main.rulebase",
             $"rule=:main %m:word%\ninclude={Path.Combine(_root, "extra")}\n");
 
         var errors = new List<string>();
@@ -195,8 +194,10 @@ public class DirectoryRulebaseTests
     [TestMethod]
     public void ManyFilesBuildOneCombinedPdag()
     {
-        for (int i = 0; i < 200; i++)
+        for (var i = 0; i < 200; i++)
+        {
             WriteRulebase($"gen/{i / 20}/rules-{i:D3}.rulebase", $"rule=:generated {i} value %v{i}:number%\n");
+        }
 
         var errors = new List<string>();
         var ctx = NewContext(errors);

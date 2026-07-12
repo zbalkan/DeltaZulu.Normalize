@@ -32,7 +32,7 @@ internal static class LiteralParser
     public static int Parse(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
-        string lit = ((Data)pdata!).Lit;
+        var lit = ((Data)pdata!).Lit;
 
         /* we must always report how far we got, matched or not (the partial
          * length feeds the "unparsed-data" diagnostics) */
@@ -50,9 +50,15 @@ internal static class LiteralParser
             parsed = npb.Str.AsSpan(offs).CommonPrefixLength(lit);
         }
         if (parsed != lit.Length)
+        {
             return ErrorCodes.WrongParser;
+        }
+
         if (wantValue)
+        {
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
         return 0;
     }
 

@@ -22,7 +22,7 @@ internal static class NumberParsers
     public static int ConstructNumber(LogNormContext ctx, JsonObject config, out object? pdata)
     {
         var data = new NumberData();
-        foreach ((string key, JsonNode? val) in config)
+        foreach ((var key, var val) in config)
         {
             if (key == "maxval")
             {
@@ -30,13 +30,19 @@ internal static class NumberParsers
             }
             else if (key == "format")
             {
-                string fmtmode = (val as JsonValue)?.GetValue<string>() ?? "";
+                var fmtmode = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
                 if (fmtmode == "number")
+                {
                     data.FmtMode = FormatMode.AsNumber;
+                }
                 else if (fmtmode == "string")
+                {
                     data.FmtMode = FormatMode.AsString;
+                }
                 else
+                {
                     ctx.Error($"invalid value for number:format {fmtmode}");
+                }
             }
             else if (!IsDashName(key, val))
             {
@@ -57,18 +63,25 @@ internal static class NumberParsers
     {
         parsed = 0;
         var data = (NumberData?)pdata;
-        FormatMode fmtMode = data?.FmtMode ?? FormatMode.AsString;
-        long maxval = data?.MaxVal ?? 0;
+        var fmtMode = data?.FmtMode ?? FormatMode.AsString;
+        var maxval = data?.MaxVal ?? 0;
 
         long val = 0;
         int i;
         for (i = offs; i < npb.StrLen && TextRules.IsDigit(npb.Str[i]); i++)
+        {
             val = unchecked(val * 10 + npb.Str[i] - '0');
+        }
 
         if (maxval > 0 && val > maxval)
+        {
             return ErrorCodes.WrongParser;
+        }
+
         if (i == offs)
+        {
             return ErrorCodes.WrongParser;
+        }
 
         parsed = i - offs;
         if (wantValue)
@@ -88,17 +101,23 @@ internal static class NumberParsers
     public static int ConstructFloat(LogNormContext ctx, JsonObject config, out object? pdata)
     {
         var data = new FloatData();
-        foreach ((string key, JsonNode? val) in config)
+        foreach ((var key, var val) in config)
         {
             if (key == "format")
             {
-                string fmtmode = (val as JsonValue)?.GetValue<string>() ?? "";
+                var fmtmode = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
                 if (fmtmode == "number")
+                {
                     data.FmtMode = FormatMode.AsNumber;
+                }
                 else if (fmtmode == "string")
+                {
                     data.FmtMode = FormatMode.AsString;
+                }
                 else
+                {
                     ctx.Error($"invalid value for float:format {fmtmode}");
+                }
             }
             else if (!IsDashName(key, val))
             {
@@ -115,10 +134,10 @@ internal static class NumberParsers
     {
         parsed = 0;
         var data = (FloatData)pdata!;
-        int i = offs;
-        bool isNeg = false;
+        var i = offs;
+        var isNeg = false;
         double val = 0;
-        bool seenPoint = false;
+        var seenPoint = false;
         double frac = 10;
 
         if (npb.At(i) == '-')
@@ -128,11 +147,14 @@ internal static class NumberParsers
         }
         for (; i < npb.StrLen; i++)
         {
-            char c = npb.Str[i];
+            var c = npb.Str[i];
             if (c == '.')
             {
                 if (seenPoint)
+                {
                     break;
+                }
+
                 seenPoint = true;
             }
             else if (TextRules.IsDigit(c))
@@ -153,14 +175,19 @@ internal static class NumberParsers
             }
         }
         if (i == offs)
+        {
             return ErrorCodes.WrongParser;
+        }
+
         if (isNeg)
+        {
             val *= -1;
+        }
 
         parsed = i - offs;
         if (wantValue)
         {
-            string raw = npb.Str.Substring(offs, parsed);
+            var raw = npb.Str.Substring(offs, parsed);
             if (data.FmtMode == FormatMode.AsString)
             {
                 value = JsonValue.Create(raw);
@@ -184,11 +211,17 @@ internal static class NumberParsers
     /// </summary>
     private static bool IsValidJsonNumber(ReadOnlySpan<char> raw)
     {
-        int i = raw[0] == '-' ? 1 : 0;
+        var i = raw[0] == '-' ? 1 : 0;
         if (i == raw.Length || raw[i] == '.')
+        {
             return false;
+        }
+
         if (raw[i] == '0' && i + 1 < raw.Length && raw[i + 1] != '.')
+        {
             return false;
+        }
+
         return raw[^1] != '.';
     }
 
@@ -201,7 +234,7 @@ internal static class NumberParsers
     public static int ConstructHexNumber(LogNormContext ctx, JsonObject config, out object? pdata)
     {
         var data = new HexNumberData();
-        foreach ((string key, JsonNode? val) in config)
+        foreach ((var key, var val) in config)
         {
             if (key == "maxval")
             {
@@ -209,13 +242,19 @@ internal static class NumberParsers
             }
             else if (key == "format")
             {
-                string fmtmode = (val as JsonValue)?.GetValue<string>() ?? "";
+                var fmtmode = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
                 if (fmtmode == "number")
+                {
                     data.FmtMode = FormatMode.AsNumber;
+                }
                 else if (fmtmode == "string")
+                {
                     data.FmtMode = FormatMode.AsString;
+                }
                 else
+                {
                     ctx.Error($"invalid value for hexnumber:format {fmtmode}");
+                }
             }
             else if (!IsDashName(key, val))
             {
@@ -235,19 +274,28 @@ internal static class NumberParsers
     {
         parsed = 0;
         var data = (HexNumberData)pdata!;
-        int i = offs;
+        var i = offs;
 
         if (npb.At(i) != '0' || npb.At(i + 1) != 'x')
+        {
             return ErrorCodes.WrongParser;
+        }
 
         ulong val = 0;
         for (i += 2; i < npb.StrLen && TextRules.IsHexDigit(npb.Str[i]); i++)
+        {
             val = unchecked(val * 16 + (ulong)TextRules.HexVal(npb.Str[i]));
+        }
 
         if (!TextRules.IsSpace(npb.At(i)))
+        {
             return ErrorCodes.WrongParser;
+        }
+
         if (data.MaxVal > 0 && val > data.MaxVal)
+        {
             return ErrorCodes.WrongParser;
+        }
 
         parsed = i - offs;
         if (wantValue)

@@ -28,7 +28,7 @@ internal sealed class AnnotationSet
     /// <summary>Add one "+name=value" operation for a tag.</summary>
     public void AddOp(string tag, string name, string value)
     {
-        Annotation? annot = Find(tag);
+        var annot = Find(tag);
         if (annot == null)
         {
             annot = new Annotation { Tag = tag };
@@ -41,21 +41,29 @@ internal sealed class AnnotationSet
     public void Annotate(JsonObject json, JsonArray tagBucket)
     {
         if (IsEmpty)
+        {
             return;
+        }
 
         /* tags are processed last-to-first, and within a tag the ops are
          * applied in reverse file order (see note above) — this reproduces
          * the field ordering of the C library */
-        for (int i = tagBucket.Count - 1; i >= 0; --i)
+        for (var i = tagBucket.Count - 1; i >= 0; --i)
         {
             if (tagBucket[i] is not JsonValue tagVal)
-                continue;
-            Annotation? annot = Find(tagVal.GetValue<string>());
-            if (annot == null)
-                continue;
-            for (int j = annot.Ops.Count - 1; j >= 0; --j)
             {
-                (string name, string value) = annot.Ops[j];
+                continue;
+            }
+
+            var annot = Find(tagVal.GetValue<string>());
+            if (annot == null)
+            {
+                continue;
+            }
+
+            for (var j = annot.Ops.Count - 1; j >= 0; --j)
+            {
+                (var name, var value) = annot.Ops[j];
                 json[name] = value;
             }
         }

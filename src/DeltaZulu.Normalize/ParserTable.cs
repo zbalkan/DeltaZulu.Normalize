@@ -32,7 +32,7 @@ internal sealed class ParserInfo
     public required string Name { get; init; }
 
     /// <summary>Parser-specific priority (0 = highest .. 255 = lowest / last resort).</summary>
-    public required int Priority { get; init; }
+    public int Priority { get; init; }
 
     public ConstructFunc? Construct { get; init; }
     public required ParseFunc Parse { get; init; }
@@ -147,10 +147,12 @@ internal static class ParserTable
 
     public static byte NameToId(string name)
     {
-        for (int i = 0; i < Parsers.Length; ++i)
+        for (var i = 0; i < Parsers.Length; ++i)
         {
             if (Parsers[i].Name == name)
+            {
                 return (byte)i;
+            }
         }
         return InvalidId;
     }

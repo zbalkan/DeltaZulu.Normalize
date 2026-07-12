@@ -20,14 +20,16 @@ public static class BenchmarkRulebases
         var match = new List<string>();
         string[] services = ["sshd", "systemd", "kernel", "nginx", "postfix", "cron", "sudo", "dhclient"];
         string[] actions = ["accepted", "rejected", "opened", "closed", "started"];
-        for (int i = 0; i < ruleCount; i++)
+        for (var i = 0; i < ruleCount; i++)
         {
-            string svc = services[i % services.Length];
-            string act = actions[(i / services.Length) % actions.Length];
-            int variant = i / (services.Length * actions.Length);
+            var svc = services[i % services.Length];
+            var act = actions[(i / services.Length) % actions.Length];
+            var variant = i / (services.Length * actions.Length);
             sb.AppendLine($"rule=:{svc}[%pid:number%]: {act} v{variant} from %ip:ipv4% port %port:number%");
             if (i % 7 == 0)
+            {
                 match.Add($"{svc}[{1000 + i}]: {act} v{variant} from 192.168.{i % 256}.{(i * 3) % 256} port {2000 + i}");
+            }
         }
         matchingMessages = match.ToArray();
         nonMatchingMessages =
@@ -49,7 +51,7 @@ public static class BenchmarkRulebases
     {
         var sb = new StringBuilder();
         string[] tails = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "omega"];
-        foreach (string tail in tails)
+        foreach (var tail in tails)
         {
             sb.AppendLine($"rule=:%user:word% %host:word% {tail} %val:number%");
             sb.AppendLine($"rule=:%user:word% %host:word% {tail}-ext %val:number% %detail:char-to:,%, done");

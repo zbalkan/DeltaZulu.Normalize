@@ -20,13 +20,14 @@ internal static class PdagCompiler
         /* the main component first, so its root lands at index 0 */
         state.CompileNode(ctx.Root, optimize: true);
 
-        int[] typeRoots = new int[ctx.TypePdags.Count];
-        for (int i = 0; i < ctx.TypePdags.Count; ++i)
-            typeRoots[i] = state.CompileNode(ctx.TypePdags[i].Dag, optimize: true);
-
-        var snap = new CompiledPdag
+        var typeRoots = new int[ctx.TypePdags.Count];
+        for (var i = 0; i < ctx.TypePdags.Count; ++i)
         {
-            Nodes = state.BuildNodes(out CompiledEdge[] edges),
+            typeRoots[i] = state.CompileNode(ctx.TypePdags[i].Dag, optimize: true);
+        }
+
+        var snap = new CompiledPdag {
+            Nodes = state.BuildNodes(out var edges),
             Edges = edges,
             Terminals = state.Terminals.ToArray(),
             TypeRoots = typeRoots,
@@ -65,8 +66,11 @@ internal static class PdagCompiler
         /// </summary>
         public int CompileNode(Pdag dag, bool optimize)
         {
-            if (_map.TryGetValue(dag, out int idx))
+            if (_map.TryGetValue(dag, out var idx))
+            {
                 return idx;
+            }
+
             idx = _nodes.Count;
             _map[dag] = idx;
             var tmp = new TempNode { RefCount = dag.RefCount };
@@ -75,8 +79,7 @@ internal static class PdagCompiler
             if (dag.IsTerminal)
             {
                 tmp.TerminalIdx = Terminals.Count;
-                Terminals.Add(new TerminalInfo
-                {
+                Terminals.Add(new TerminalInfo {
                     Tags = dag.Tags,
                     RulebaseFile = dag.RulebaseFile,
                     RulebaseLineNumber = dag.RulebaseLineNumber,
@@ -88,10 +91,10 @@ internal static class PdagCompiler
                 ? dag.Parsers.OrderBy(p => p.Priority)
                 : dag.Parsers;
 
-            foreach (ParserInstance prs in parsers)
+            foreach (var prs in parsers)
             {
-                object? data = prs.ParserData;
-                Pdag target = prs.Node;
+                var data = prs.ParserData;
+                var target = prs.Node;
 
                 if (optimize && prs.PrsId == ParserTable.LiteralId && prs.Name == null)
                 {
@@ -102,8 +105,8 @@ internal static class PdagCompiler
                      * optLitPathCompact); skipped nodes are simply never
                      * compiled. The builder's literal data is not mutated —
                      * a merged edge gets fresh data. */
-                    string lit = ((LiteralParser.Data)data!).Lit;
-                    bool merged = false;
+                    var lit = ((LiteralParser.Data)data!).Lit;
+                    var merged = false;
                     while (!target.IsTerminal
                            && target.RefCount == 1
                            && target.Parsers.Count == 1
@@ -116,13 +119,14 @@ internal static class PdagCompiler
                         merged = true;
                     }
                     if (merged)
+                    {
                         data = new LiteralParser.Data { Lit = lit };
+                    }
                 }
                 else if (prs.PrsId == ParserTable.RepeatId)
                 {
                     var rd = (RepeatParser.Data)data!;
-                    data = new RepeatParser.CompiledData
-                    {
+                    data = new RepeatParser.CompiledData {
                         ParserRoot = CompileNode(rd.Parser, optimize: false),
                         WhileRoot = CompileNode(rd.WhileCond, optimize: false),
                         PermitMismatchInParser = rd.PermitMismatchInParser,
@@ -130,13 +134,15 @@ internal static class PdagCompiler
                     };
                 }
 
-                int targetIdx = CompileNode(target, optimize);
-                char firstChar = '\0';
+                var targetIdx = CompileNode(target, optimize);
+                var firstChar = '\0';
                 if (prs.PrsId == ParserTable.LiteralId)
                 {
-                    string lit = ((LiteralParser.Data)data!).Lit;
+                    var lit = ((LiteralParser.Data)data!).Lit;
                     if (lit.Length > 0)
+                    {
                         firstChar = lit[0];
+                    }
                 }
                 tmp.Edges.Add(new CompiledEdge(prs.PrsId, firstChar, targetIdx,
                     prs.CustomTypeIndex, data, prs.Name, ClassifyExtract(prs.PrsId, data)));
@@ -178,12 +184,15 @@ internal static class PdagCompiler
                 case "number":
                     return ((NumberParsers.NumberData)data!).FmtMode == FormatMode.AsString
                         ? ExtractMode.RawSpan : ExtractMode.Deferred;
+
                 case "float":
                     return ((NumberParsers.FloatData)data!).FmtMode == FormatMode.AsString
                         ? ExtractMode.RawSpan : ExtractMode.Deferred;
+
                 case "hexnumber":
                     return ((NumberParsers.HexNumberData)data!).FmtMode == FormatMode.AsString
                         ? ExtractMode.RawSpan : ExtractMode.Deferred;
+
                 case "date-rfc3164":
                 case "date-rfc5424":
                     return ((DateTimeParsers.DateData)data!).FmtMode == FormatMode.AsString
@@ -211,15 +220,18 @@ internal static class PdagCompiler
         public CompiledNode[] BuildNodes(out CompiledEdge[] edges)
         {
             var nodes = new CompiledNode[_nodes.Count];
-            int edgeCount = 0;
-            foreach (TempNode t in _nodes)
+            var edgeCount = 0;
+            foreach (var t in _nodes)
+            {
                 edgeCount += t.Edges.Count;
+            }
+
             edges = new CompiledEdge[edgeCount];
 
-            int offset = 0;
-            for (int i = 0; i < _nodes.Count; ++i)
+            var offset = 0;
+            for (var i = 0; i < _nodes.Count; ++i)
             {
-                TempNode t = _nodes[i];
+                var t = _nodes[i];
                 t.Edges.CopyTo(edges, offset);
                 nodes[i] = new CompiledNode(offset, t.Edges.Count, t.TerminalIdx, t.RefCount);
                 offset += t.Edges.Count;
@@ -247,24 +259,32 @@ internal static class PdagCompiler
     private static void GenerateDotRec(CompiledPdag snap, int nodeIdx, StringBuilder sb, HashSet<int> visited)
     {
         if (!visited.Add(nodeIdx))
+        {
             return;
-        CompiledNode node = snap.Nodes[nodeIdx];
+        }
+
+        var node = snap.Nodes[nodeIdx];
         sb.Append($"l{nodeIdx} [ label=\"{node.RefCount}\"");
         if (node.IsTerminal)
-            sb.Append(" style=\"bold\"");
-        sb.Append("]\n");
-        for (int i = node.EdgeStart; i < node.EdgeStart + node.EdgeCount; ++i)
         {
-            CompiledEdge edge = snap.Edges[i];
+            sb.Append(" style=\"bold\"");
+        }
+
+        sb.Append("]\n");
+        for (var i = node.EdgeStart; i < node.EdgeStart + node.EdgeCount; ++i)
+        {
+            var edge = snap.Edges[i];
             sb.Append($"l{nodeIdx} -> l{edge.TargetNode} [label=\"");
             sb.Append(ParserTable.IdToName(edge.PrsId));
             sb.Append(':');
             if (edge.PrsId == ParserTable.LiteralId)
             {
-                foreach (char c in LiteralParser.DataForDisplay(edge.Data!))
+                foreach (var c in LiteralParser.DataForDisplay(edge.Data!))
                 {
                     if (c != '\\' && c != '"')
+                    {
                         sb.Append(c);
+                    }
                 }
             }
             sb.Append("\" style=\"dotted\"]\n");

@@ -62,7 +62,7 @@ public sealed class LogNormContext
         {
             lock (_pdagLock)
             {
-                CompiledPdag? snap = Volatile.Read(ref _snapshot);
+                var snap = Volatile.Read(ref _snapshot);
                 if (snap == null)
                 {
                     snap = PdagCompiler.Compile(this);
@@ -77,7 +77,7 @@ public sealed class LogNormContext
     {
         lock (_pdagLock)
         {
-            int r = load();
+            var r = load();
             /* invalidate even on failure: rules may have been added before
              * the error was hit, and they must become visible consistently */
             Volatile.Write(ref _snapshot, null);
@@ -138,21 +138,30 @@ public sealed class LogNormContext
     /// </summary>
     public (long NodesVisited, long Backtracks) GetStats()
     {
-        CompiledPdag? snap = Volatile.Read(ref _snapshot);
+        var snap = Volatile.Read(ref _snapshot);
         if (snap?.StatsCalled == null || snap.StatsBacktracked == null)
+        {
             return (0, 0);
+        }
+
         long called = 0, backtracked = 0;
-        foreach (int v in snap.StatsCalled)
+        foreach (var v in snap.StatsCalled)
+        {
             called += v;
-        foreach (int v in snap.StatsBacktracked)
+        }
+
+        foreach (var v in snap.StatsBacktracked)
+        {
             backtracked += v;
+        }
+
         return (called, backtracked);
     }
 
     /// <summary>Convenience wrapper returning the result as a JSON string.</summary>
     public int NormalizeToString(string message, out string json)
     {
-        int r = Normalize(message, out JsonObject obj);
+        var r = Normalize(message, out var obj);
         json = JsonText.ToCompactString(obj);
         return r;
     }
@@ -170,7 +179,7 @@ public sealed class LogNormContext
         var cb = ErrorCallback;
         if (cb != null)
         {
-            string where = ConfFile == null ? "" : $"{ConfFile}[{ConfLineNumber}]: ";
+            var where = ConfFile == null ? string.Empty : $"{ConfFile}[{ConfLineNumber}]: ";
             cb(where + msg);
         }
     }

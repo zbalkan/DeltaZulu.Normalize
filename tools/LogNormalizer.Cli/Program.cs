@@ -2,18 +2,17 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DeltaZulu.Normalize;
 
-var jsonOptions = new JsonSerializerOptions
-{
+var jsonOptions = new JsonSerializerOptions {
     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
 };
 
 string? rulebasePath = null;
 string? singleMessage = null;
-bool addOriginalMsg = false;
-bool addRule = false;
-bool includeEventTags = false;
+var addOriginalMsg = false;
+var addRule = false;
+var includeEventTags = false;
 
-for (int i = 0; i < args.Length; i++)
+for (var i = 0; i < args.Length; i++)
 {
     switch (args[i])
     {
@@ -26,6 +25,7 @@ for (int i = 0; i < args.Length; i++)
             }
             rulebasePath = args[++i];
             break;
+
         case "-m":
             if (i + 1 >= args.Length)
             {
@@ -35,19 +35,24 @@ for (int i = 0; i < args.Length; i++)
             }
             singleMessage = args[++i];
             break;
+
         case "-O":
             addOriginalMsg = true;
             break;
+
         case "--add-rule":
             addRule = true;
             break;
+
         case "-T":
             includeEventTags = true;
             break;
+
         case "-h":
         case "--help":
             PrintUsage();
             return 0;
+
         default:
             Console.Error.WriteLine($"unknown option: {args[i]}");
             PrintUsage();
@@ -62,14 +67,18 @@ if (rulebasePath == null)
     return 1;
 }
 
-var ctx = new LogNormContext
-{
+var ctx = new LogNormContext {
     ErrorCallback = msg => Console.Error.WriteLine($"lognormalizer: {msg}"),
 };
 if (addOriginalMsg)
+{
     ctx.Options |= LogNormOptions.AddOriginalMessage;
+}
+
 if (addRule)
+{
     ctx.Options |= LogNormOptions.AddRule;
+}
 
 if (ctx.LoadSamples(rulebasePath) != 0)
 {
@@ -85,7 +94,9 @@ if (singleMessage != null)
 
 string? line;
 while ((line = Console.In.ReadLine()) != null)
+{
     NormalizeAndPrint(ctx, line, includeEventTags, jsonOptions);
+}
 
 return 0;
 
@@ -93,7 +104,10 @@ static void NormalizeAndPrint(LogNormContext ctx, string message, bool includeEv
 {
     ctx.Normalize(message, out JsonObject json);
     if (!includeEventTags)
+    {
         json.Remove("event.tags");
+    }
+
     Console.WriteLine(json.ToJsonString(jsonOptions));
 }
 

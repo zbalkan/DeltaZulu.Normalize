@@ -1,5 +1,4 @@
 using System.Text;
-using DeltaZulu.Normalize;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static DeltaZulu.Normalize.Tests.TestHelpers;
 
@@ -100,15 +99,21 @@ public class CorrectnessFixTests
          * in sequence make the re-join nodes reachable via 2^24 textual paths.
          * Without visited-marking the optimizer walk is exponential. */
         var rule = new StringBuilder("rule=:start");
-        for (int i = 0; i < 24; i++)
+        for (var i = 0; i < 24; i++)
+        {
             rule.Append("""
                  %{"type":"alternative", "parser":[ {"type":"literal", "text":"a"}, {"type":"literal", "text":"b"} ]}%
                 """.Trim().Insert(0, " "));
+        }
+
         rule.Append(" %f:word%");
 
         var msg = new StringBuilder("start");
-        for (int i = 0; i < 24; i++)
+        for (var i = 0; i < 24; i++)
+        {
             msg.Append(i % 2 == 0 ? " a" : " b");
+        }
+
         msg.Append(" end");
 
         var (r, j) = TestHelpers.Normalize(rule.ToString(), msg.ToString());

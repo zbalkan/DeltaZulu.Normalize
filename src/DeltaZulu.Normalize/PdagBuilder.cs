@@ -23,13 +23,18 @@ internal static class PdagBuilder
     /// </summary>
     public static int FindType(LogNormContext ctx, string name, bool add)
     {
-        for (int i = 0; i < ctx.TypePdags.Count; ++i)
+        for (var i = 0; i < ctx.TypePdags.Count; ++i)
         {
             if (ctx.TypePdags[i].Name == name)
+            {
                 return i;
+            }
         }
         if (!add)
+        {
             return -1;
+        }
+
         ctx.TypePdags.Add(new TypePdag { Name = name, Dag = new Pdag(ctx) });
         return ctx.TypePdags.Count - 1;
     }
@@ -41,18 +46,18 @@ internal static class PdagBuilder
     public static ParserInstance? NewParser(LogNormContext ctx, JsonObject prscnf)
     {
         /* canonical config text is captured before any keys are removed */
-        string textconf = JsonText.ToCompactString(prscnf);
-        int assignedPrio = ParserTable.DefaultUserPriority;
+        var textconf = JsonText.ToCompactString(prscnf);
+        var assignedPrio = ParserTable.DefaultUserPriority;
         int parserPrio;
         byte prsid;
-        int custType = -1;
+        var custType = -1;
 
         if (prscnf["type"] is not JsonValue typeVal)
         {
             ctx.Error($"parser type missing in config: {textconf}");
             return null;
         }
-        string typeName = typeVal.GetValue<string>();
+        var typeName = typeVal.GetValue<string>();
         if (typeName.StartsWith('@'))
         {
             prsid = ParserTable.CustomTypeId;
@@ -78,21 +83,24 @@ internal static class PdagBuilder
         string? name = null;
         if (prscnf["name"] is JsonValue nameVal)
         {
-            string s = nameVal.GetValue<string>();
+            var s = nameVal.GetValue<string>();
             if (s != "-")
+            {
                 name = s;
+            }
         }
 
         if (prscnf["priority"] is JsonValue)
+        {
             assignedPrio = (int)JsonText.GetLenientInt64(prscnf["priority"]);
+        }
 
         /* remove processed items so the remainder can go to the parser's construct */
         prscnf.Remove("type");
         prscnf.Remove("priority");
         prscnf.Remove("name");
 
-        var node = new ParserInstance
-        {
+        var node = new ParserInstance {
             PrsId = prsid,
             Conf = textconf,
         };
@@ -104,8 +112,11 @@ internal static class PdagBuilder
         }
         else if (ParserTable.Parsers[prsid].Construct is { } construct)
         {
-            if (construct(ctx, prscnf, out object? pdata) != 0)
+            if (construct(ctx, prscnf, out var pdata) != 0)
+            {
                 return null;
+            }
+
             node.ParserData = pdata;
         }
         return node;
@@ -122,11 +133,13 @@ internal static class PdagBuilder
     /// </summary>
     private static int AddParserInstance(LogNormContext ctx, JsonObject prscnf, Pdag pdag, ref Pdag? nextnode)
     {
-        ParserInstance? parser = NewParser(ctx, prscnf);
+        var parser = NewParser(ctx, prscnf);
         if (parser == null)
+        {
             return ErrorCodes.BadConfig;
+        }
 
-        foreach (ParserInstance existing in pdag.Parsers)
+        foreach (var existing in pdag.Parsers)
         {
             if (existing.PrsId == parser.PrsId && existing.Conf == parser.Conf)
             {
@@ -139,9 +152,14 @@ internal static class PdagBuilder
 
         /* a new parser type for this node */
         if (nextnode == null)
+        {
             nextnode = new Pdag(ctx);
+        }
         else
+        {
             nextnode.RefCount++;
+        }
+
         parser.Node = nextnode;
         pdag.Parsers.Add(parser);
         return 0;
@@ -153,24 +171,33 @@ internal static class PdagBuilder
     /// <summary>Add an array of parser configs, either as a sequence or as alternatives.</summary>
     private static int AddParsers(LogNormContext ctx, JsonArray prscnf, int mode, ref Pdag pdag, ref Pdag? pNextnode)
     {
-        Pdag dag = pdag;
-        Pdag? nextnode = pNextnode;
+        var dag = pdag;
+        var nextnode = pNextnode;
 
-        foreach (JsonNode? item in prscnf)
+        foreach (var item in prscnf)
         {
             int r;
             if (item is JsonArray arr)
             {
-                Pdag localDag = dag;
+                var localDag = dag;
                 r = AddParserInternal(ctx, ref localDag, mode, arr, ref nextnode);
-                if (r != 0) return r;
+                if (r != 0)
+                {
+                    return r;
+                }
+
                 if (mode == ModeSeq)
+                {
                     dag = localDag;
+                }
             }
             else if (item is JsonObject obj)
             {
                 r = AddParserInternal(ctx, ref dag, mode, obj, ref nextnode);
-                if (r != 0) return r;
+                if (r != 0)
+                {
+                    return r;
+                }
             }
             else
             {
@@ -186,7 +213,10 @@ internal static class PdagBuilder
         }
 
         if (mode != ModeSeq)
+        {
             dag = nextnode!;
+        }
+
         pdag = dag;
         return 0;
     }
@@ -202,7 +232,7 @@ internal static class PdagBuilder
         int r;
         if (prscnf is JsonObject obj)
         {
-            string? ftype = (obj["type"] as JsonValue)?.GetValue<string>();
+            var ftype = (obj["type"] as JsonValue)?.GetValue<string>();
             if (ftype == "alternative")
             {
                 if (obj["parser"] is not JsonArray alternatives)
@@ -211,20 +241,32 @@ internal static class PdagBuilder
                     return ErrorCodes.BadConfig;
                 }
                 r = AddParsers(ctx, alternatives, ModeAlternative, ref pdag, ref nextnode);
-                if (r != 0) return r;
+                if (r != 0)
+                {
+                    return r;
+                }
             }
             else
             {
                 r = AddParserInstance(ctx, obj, pdag, ref nextnode);
-                if (r != 0) return r;
+                if (r != 0)
+                {
+                    return r;
+                }
+
                 if (mode == ModeSeq)
+                {
                     pdag = nextnode!;
+                }
             }
         }
         else if (prscnf is JsonArray arr)
         {
             r = AddParsers(ctx, arr, ModeSeq, ref pdag, ref nextnode);
-            if (r != 0) return r;
+            if (r != 0)
+            {
+                return r;
+            }
         }
         else
         {

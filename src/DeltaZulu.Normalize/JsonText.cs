@@ -21,10 +21,14 @@ internal static class JsonText
         node = null;
         charsConsumed = 0;
         if (offs >= text.Length)
+        {
             return false;
+        }
 
-        if (!TryFindObjectOrArrayEnd(text, offs, out int endExclusive))
+        if (!TryFindObjectOrArrayEnd(text, offs, out var endExclusive))
+        {
             return false;
+        }
 
         /* parse the char span directly (the serializer transcodes via pooled
          * buffers), instead of allocating a UTF-8 copy of the slice */
@@ -41,7 +45,10 @@ internal static class JsonText
 
         /* json-c consumes whitespace following the value; emulate that */
         while (offs + charsConsumed < text.Length && TextRules.IsSpace(text[offs + charsConsumed]))
+        {
             ++charsConsumed;
+        }
+
         return true;
     }
 
@@ -55,18 +62,20 @@ internal static class JsonText
     {
         endExclusive = 0;
         if (offs >= text.Length || (text[offs] != '{' && text[offs] != '['))
+        {
             return false;
+        }
 
         /* depth counting only; a mismatched closer ("{]") yields a candidate
          * extent that the strict JSON parse then rejects, same net result as
          * tracking the exact closer kinds — without allocating a stack */
-        int depth = 0;
-        bool inString = false;
-        bool escaped = false;
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
 
-        for (int i = offs; i < text.Length; ++i)
+        for (var i = offs; i < text.Length; ++i)
         {
-            char c = text[i];
+            var c = text[i];
 
             if (inString)
             {
@@ -90,10 +99,12 @@ internal static class JsonText
                 case '"':
                     inString = true;
                     break;
+
                 case '{':
                 case '[':
                     depth++;
                     break;
+
                 case '}':
                 case ']':
                     if (--depth <= 0)
@@ -122,18 +133,29 @@ internal static class JsonText
     public static long GetLenientInt64(JsonNode? node)
     {
         if (node is not JsonValue v)
+        {
             return 0;
+        }
+
         if (v.TryGetValue(out long l))
+        {
             return l;
+        }
+
         if (v.TryGetValue(out double d))
+        {
             return (long)d;
-        if (v.TryGetValue(out string? s) && long.TryParse(s, out long parsed))
+        }
+
+        if (v.TryGetValue(out string? s) && long.TryParse(s, out var parsed))
+        {
             return parsed;
+        }
+
         return 0;
     }
 
-    public static readonly JsonSerializerOptions SerializerOptions = new()
-    {
+    public static readonly JsonSerializerOptions SerializerOptions = new() {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 }

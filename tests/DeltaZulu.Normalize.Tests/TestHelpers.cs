@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using DeltaZulu.Normalize;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace DeltaZulu.Normalize.Tests;
@@ -48,7 +47,7 @@ internal static class TestHelpers
         /* an expectation written as a JSON object/array literal is compared
           * structurally (order-independent); anything else is the expected
           * plain string value of the field */
-        string trimmed = expectedValue.TrimStart();
+        var trimmed = expectedValue.TrimStart();
         if (trimmed.StartsWith('{') || trimmed.StartsWith('['))
         {
             var expectedNode = JsonNode.Parse(expectedValue);
@@ -59,7 +58,7 @@ internal static class TestHelpers
         }
         else
         {
-            string actualValue = fieldValue is JsonValue jv && jv.TryGetValue(out string? s)
+            var actualValue = fieldValue is JsonValue jv && jv.TryGetValue(out string? s)
                ? s
                : fieldValue?.ToJsonString() ?? "null";
             if (actualValue != expectedValue)

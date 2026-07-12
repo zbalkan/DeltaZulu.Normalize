@@ -20,8 +20,11 @@ internal static class StructuredParsers
     {
         pdata = null;
         if (config["extradata"] is not JsonValue ed)
+        {
             return 0; /* no parameter */
-        string flag = ed.GetValue<string>();
+        }
+
+        var flag = ed.GetValue<string>();
         if (string.Equals(flag, "skipempty", StringComparison.OrdinalIgnoreCase))
         {
             pdata = new JsonData { SkipEmpty = true };
@@ -42,30 +45,36 @@ internal static class StructuredParsers
         {
             case null:
                 return (null, true);
+
             case JsonArray arr:
-            {
-                var pruned = new JsonArray();
-                foreach (JsonNode? elem in arr)
                 {
-                    (JsonNode? child, bool empty) = PruneEmpty(elem);
-                    if (!empty)
-                        pruned.Add(child);
+                    var pruned = new JsonArray();
+                    foreach (var elem in arr)
+                    {
+                        (var child, var empty) = PruneEmpty(elem);
+                        if (!empty)
+                        {
+                            pruned.Add(child);
+                        }
+                    }
+                    return pruned.Count == 0 ? (null, true) : (pruned, false);
                 }
-                return pruned.Count == 0 ? (null, true) : (pruned, false);
-            }
             case JsonObject obj:
-            {
-                var pruned = new JsonObject();
-                foreach ((string key, JsonNode? val) in obj)
                 {
-                    (JsonNode? child, bool empty) = PruneEmpty(val);
-                    if (!empty)
-                        pruned[key] = child;
+                    var pruned = new JsonObject();
+                    foreach ((var key, var val) in obj)
+                    {
+                        (var child, var empty) = PruneEmpty(val);
+                        if (!empty)
+                        {
+                            pruned[key] = child;
+                        }
+                    }
+                    return pruned.Count == 0 ? (null, true) : (pruned, false);
                 }
-                return pruned.Count == 0 ? (null, true) : (pruned, false);
-            }
             case JsonValue v when v.TryGetValue(out string? s):
                 return s.Length == 0 ? (null, true) : (v.DeepClone(), false);
+
             default:
                 return (node.DeepClone(), false);
         }
@@ -81,19 +90,28 @@ internal static class StructuredParsers
     {
         parsed = 0;
         var data = (JsonData?)pdata;
-        int i = offs;
+        var i = offs;
 
         if (i == npb.StrLen)
+        {
             return ErrorCodes.WrongParser;
-        if (npb.Str[i] != '{' && npb.Str[i] != '[')
-            return ErrorCodes.WrongParser; /* cannot be JSON, RFC4627 Sect. 2 */
+        }
 
-        if (!JsonText.TryParseValue(npb.Str, i, out JsonNode? json, out int consumed))
+        if (npb.Str[i] != '{' && npb.Str[i] != '[')
+        {
+            return ErrorCodes.WrongParser; /* cannot be JSON, RFC4627 Sect. 2 */
+        }
+
+        if (!JsonText.TryParseValue(npb.Str, i, out var json, out var consumed))
+        {
             return ErrorCodes.WrongParser;
+        }
 
         i += consumed;
         while (i < npb.StrLen && TextRules.IsSpace(npb.Str[i]))
+        {
             ++i;
+        }
 
         parsed = i - offs;
 
@@ -101,9 +119,12 @@ internal static class StructuredParsers
         {
             if (data is { SkipEmpty: true })
             {
-                (JsonNode? prunedNode, bool empty) = PruneEmpty(json);
+                (var prunedNode, var empty) = PruneEmpty(json);
                 if (empty)
+                {
                     return 0; /* value stays unset; field becomes JSON null */
+                }
+
                 json = prunedNode;
             }
             value = json;
@@ -121,26 +142,38 @@ internal static class StructuredParsers
         out int parsed, bool wantValue, ref JsonNode? value)
     {
         parsed = 0;
-        string s = npb.Str;
-        int i = offs;
+        var s = npb.Str;
+        var i = offs;
 
         if (npb.StrLen < i + 7 /* "@cee:{}" is the minimum */
             || s[i] != '@' || s[i + 1] != 'c' || s[i + 2] != 'e' || s[i + 3] != 'e' || s[i + 4] != ':')
+        {
             return ErrorCodes.WrongParser;
+        }
 
         for (i += 5; i < npb.StrLen && TextRules.IsSpace(s[i]); ++i) { }
 
         if (i == npb.StrLen || s[i] != '{')
+        {
             return ErrorCodes.WrongParser; /* note: arrays are not permitted in CEE mode */
+        }
 
-        if (!JsonText.TryParseValue(s, i, out JsonNode? json, out int consumed))
+        if (!JsonText.TryParseValue(s, i, out var json, out var consumed))
+        {
             return ErrorCodes.WrongParser;
+        }
+
         if (i + consumed != npb.StrLen)
+        {
             return ErrorCodes.WrongParser;
+        }
 
         parsed = npb.StrLen;
         if (wantValue)
+        {
             value = json;
+        }
+
         return 0;
     }
 
@@ -148,29 +181,39 @@ internal static class StructuredParsers
 
     /* the permitted name char set is deliberately slim (upper case only) so
      * the motif does not match random words like "DF" in ordinary text */
+
     private static bool IsValidIPTablesNameChar(char c) => c >= 'A' && c <= 'Z';
 
     private static bool ParseIPTablesNameValue(Npb npb, ref int offs, JsonObject? valroot)
     {
-        string s = npb.Str;
-        int i = offs;
+        var s = npb.Str;
+        var i = offs;
 
-        int iName = i;
+        var iName = i;
         while (i < npb.StrLen && IsValidIPTablesNameChar(s[i]))
+        {
             ++i;
-        if (i == iName || (i < npb.StrLen && s[i] != '=' && s[i] != ' '))
-            return false; /* no name at all */
-        int lenName = i - iName;
+        }
 
-        int iVal = -1;
-        int lenVal = 0;
+        if (i == iName || (i < npb.StrLen && s[i] != '=' && s[i] != ' '))
+        {
+            return false; /* no name at all */
+        }
+
+        var lenName = i - iName;
+
+        var iVal = -1;
+        var lenVal = 0;
         if (i < npb.StrLen && s[i] != ' ')
         {
             /* we have a real value (not just a flag name like "DF") */
             ++i; /* skip '=' */
             iVal = i;
             while (i < npb.StrLen && !TextRules.IsSpace(s[i]))
+            {
                 ++i;
+            }
+
             lenVal = i - iVal;
         }
 
@@ -191,21 +234,28 @@ internal static class StructuredParsers
         out int parsed, bool wantValue, ref JsonNode? value)
     {
         parsed = 0;
-        int i = offs;
-        int nfields = 0;
+        var i = offs;
+        var nfields = 0;
 
         /* stage one: detect only (extraction is expensive; mismatches are common) */
         while (i < npb.StrLen)
         {
             if (!ParseIPTablesNameValue(npb, ref i, null))
+            {
                 return ErrorCodes.WrongParser;
+            }
+
             ++nfields;
             /* exactly one SP is permitted between fields */
             if (i < npb.StrLen && npb.Str[i] == ' ')
+            {
                 ++i;
+            }
         }
         if (nfields < 2)
+        {
             return ErrorCodes.WrongParser;
+        }
 
         parsed = i - offs;
 
@@ -217,9 +267,14 @@ internal static class StructuredParsers
             while (i < npb.StrLen)
             {
                 if (!ParseIPTablesNameValue(npb, ref i, obj))
+                {
                     return ErrorCodes.WrongParser;
+                }
+
                 while (i < npb.StrLen && TextRules.IsSpace(npb.Str[i]))
+                {
                     ++i;
+                }
             }
             value = obj;
         }
@@ -240,11 +295,11 @@ internal static class StructuredParsers
         pdata = null;
         var data = new NameValueData();
 
-        foreach (string key in new[] { "extradata", "separator" })
+        foreach (var key in new[] { "extradata", "separator" })
         {
             if (config[key] is JsonValue val)
             {
-                string s = val.GetValue<string>();
+                var s = val.GetValue<string>();
                 if (s.Length != 1)
                 {
                     ctx.Error($"name-value-list's '{key}' field should only be 1 character");
@@ -255,7 +310,7 @@ internal static class StructuredParsers
         }
         if (config["assignator"] is JsonValue assVal)
         {
-            string s = assVal.GetValue<string>();
+            var s = assVal.GetValue<string>();
             if (s.Length != 1)
             {
                 ctx.Error("name-value-list's 'assignator' field should only be 1 character");
@@ -263,7 +318,7 @@ internal static class StructuredParsers
             }
             data.Ass = s[0];
         }
-        if (config.TryGetPropertyValue("ignore_whitespaces", out JsonNode? iw))
+        if (config.TryGetPropertyValue("ignore_whitespaces", out var iw))
         {
             if (iw is JsonValue v && v.TryGetValue(out bool b))
             {
@@ -286,27 +341,36 @@ internal static class StructuredParsers
     private static bool ParseNameValuePair(Npb npb, ref int offs, JsonObject? valroot,
         char sep, char ass, bool ignoreWs)
     {
-        string s = npb.Str;
-        int i = offs;
+        var s = npb.Str;
+        var i = offs;
 
         if (ignoreWs)
         {
             while (i < npb.StrLen && TextRules.IsSpace(s[i]))
+            {
                 i++;
+            }
         }
 
-        int iName = i;
+        var iName = i;
         /* with an explicit assignator, scan for it; otherwise validate name chars */
         while (i < npb.StrLen && (ass != 0 ? s[i] != ass : IsValidNameChar(s[i])))
+        {
             ++i;
-        if (i == iName || (ass != 0 ? npb.At(i) != ass : npb.At(i) != '='))
-            return false; /* no name at all */
+        }
 
-        int lenName = i - iName;
+        if (i == iName || (ass != 0 ? npb.At(i) != ass : npb.At(i) != '='))
+        {
+            return false; /* no name at all */
+        }
+
+        var lenName = i - iName;
         if (ignoreWs)
         {
             while (lenName > 0 && TextRules.IsSpace(s[iName + lenName - 1]))
+            {
                 lenName--;
+            }
         }
 
         ++i; /* skip assignator */
@@ -314,26 +378,37 @@ internal static class StructuredParsers
         if (ignoreWs)
         {
             while (i < npb.StrLen && TextRules.IsSpace(s[i]))
+            {
                 i++;
+            }
         }
 
-        char quoting = i < npb.StrLen ? s[i] : '\0';
+        var quoting = i < npb.StrLen ? s[i] : '\0';
         if (i < npb.StrLen && (quoting == '"' || quoting == '\''))
+        {
             i++;
+        }
         else
+        {
             quoting = '\0'; /* no quoting detected */
+        }
 
-        int iVal = i;
-        int continuousBackslash = 0;
+        var iVal = i;
+        var continuousBackslash = 0;
         if (quoting != '\0')
         {
             /* wait for an unescaped matching quote (odd backslash run = escaped) */
             while (i < npb.StrLen && (s[i] != quoting || continuousBackslash % 2 == 1))
             {
                 if (s[i] == '\\')
+                {
                     continuousBackslash++;
+                }
                 else
+                {
                     continuousBackslash = 0;
+                }
+
                 ++i;
             }
         }
@@ -345,31 +420,45 @@ internal static class StructuredParsers
                        || continuousBackslash % 2 == 1))
             {
                 if (s[i] == '\\')
+                {
                     continuousBackslash++;
+                }
                 else
+                {
                     continuousBackslash = 0;
+                }
+
                 ++i;
             }
         }
 
-        int iValEnd = i;
+        var iValEnd = i;
 
         /* skip the closing quote, if any */
         if (i < npb.StrLen && s[i] == quoting)
+        {
             ++i;
+        }
         else if (quoting != '\0')
+        {
             return false;
+        }
 
-        int lenVal = quoting != '\0' ? iValEnd - iVal : i - iVal;
+        var lenVal = quoting != '\0' ? iValEnd - iVal : i - iVal;
         if (ignoreWs && quoting == '\0')
         {
             while (lenVal > 0 && TextRules.IsSpace(s[iVal + lenVal - 1]))
+            {
                 lenVal--;
+            }
         }
 
         offs = i;
         if (valroot != null)
+        {
             valroot[s.Substring(iName, lenName)] = s.Substring(iVal, lenVal);
+        }
+
         return true;
     }
 
@@ -382,11 +471,11 @@ internal static class StructuredParsers
         out int parsed, bool wantValue, ref JsonNode? value)
     {
         var data = (NameValueData?)pdata;
-        char sep = data?.Sep ?? '\0';
-        char ass = data?.Ass ?? '\0';
-        bool ignoreWs = data?.IgnoreWhitespaces ?? false;
+        var sep = data?.Sep ?? '\0';
+        var ass = data?.Ass ?? '\0';
+        var ignoreWs = data?.IgnoreWhitespaces ?? false;
 
-        int i = RunNameValueStage(npb, offs, null, sep, ass, ignoreWs);
+        var i = RunNameValueStage(npb, offs, null, sep, ass, ignoreWs);
         parsed = i - offs;
 
         if (wantValue)
@@ -404,17 +493,27 @@ internal static class StructuredParsers
         while (i < npb.StrLen)
         {
             if (!ParseNameValuePair(npb, ref i, valroot, sep, ass, ignoreWs))
+            {
                 break;
+            }
+
             if (ignoreWs && sep != 0)
             {
                 while (i < npb.StrLen && TextRules.IsSpace(npb.Str[i]))
+                {
                     ++i;
+                }
             }
             /* require at least one separator after the value */
             if (i < npb.StrLen && !(sep == 0 ? TextRules.IsSpace(npb.Str[i]) : npb.Str[i] == sep))
+            {
                 break;
+            }
+
             while (i < npb.StrLen && (sep == 0 ? TextRules.IsSpace(npb.Str[i]) : npb.Str[i] == sep))
+            {
                 ++i;
+            }
         }
         return i;
     }
@@ -428,17 +527,20 @@ internal static class StructuredParsers
     /// </summary>
     private static bool CefParseExtensionValue(Npb npb, ref int iEndVal)
     {
-        string s = npb.Str;
-        int i = iEndVal;
-        int iLastWordBegin = 0;
-        bool hadSP = false;
-        bool inEscape = false;
+        var s = npb.Str;
+        var i = iEndVal;
+        var iLastWordBegin = 0;
+        var hadSP = false;
+        var inEscape = false;
         for (; i < npb.StrLen; ++i)
         {
             if (inEscape)
             {
                 if (s[i] != '=' && s[i] != '\\' && s[i] != 'r' && s[i] != 'n' && s[i] != '/')
+                {
                     return false;
+                }
+
                 inEscape = false;
             }
             else if (s[i] == '=')
@@ -463,24 +565,34 @@ internal static class StructuredParsers
         /* a dangling escape at end-of-string (no char to complete it) would
          * otherwise let the caller index one past the value below */
         if (inEscape)
+        {
             return false;
+        }
 
         /* iLastWordBegin can never be offset zero: the CEF header starts there */
         if (i < npb.StrLen)
+        {
             iEndVal = iLastWordBegin == 0 ? i : iLastWordBegin - 1;
+        }
         else
+        {
             iEndVal = i;
+        }
+
         return true;
     }
 
     /// <summary>Scan an extension name; ArcSight also uses '_' and '.' despite the spec.</summary>
     private static bool CefParseName(Npb npb, ref int i)
     {
-        string s = npb.Str;
+        var s = npb.Str;
         while (i < npb.StrLen && s[i] != '=')
         {
             if (!(TextRules.IsAlnum(s[i]) || s[i] == '_' || s[i] == '.'))
+            {
                 return false;
+            }
+
             ++i;
         }
         return true;
@@ -492,28 +604,40 @@ internal static class StructuredParsers
     /// </summary>
     private static bool CefParseExtensions(Npb npb, ref int offs, JsonObject? jroot)
     {
-        string s = npb.Str;
-        int i = offs;
+        var s = npb.Str;
+        var i = offs;
 
         while (i < npb.StrLen)
         {
             while (i < npb.StrLen && s[i] == ' ')
+            {
                 ++i;
-            int iName = i;
-            if (!CefParseName(npb, ref i))
-                return false;
-            if (npb.At(i) != '=')
-                return false;
-            int lenName = i - iName;
+            }
 
-            int iValue = i;
-            int lenValue = 0;
+            var iName = i;
+            if (!CefParseName(npb, ref i))
+            {
+                return false;
+            }
+
+            if (npb.At(i) != '=')
+            {
+                return false;
+            }
+
+            var lenName = i - iName;
+
+            var iValue = i;
+            var lenValue = 0;
             if (i < npb.StrLen)
             {
                 ++i; /* skip '=' */
                 iValue = i;
                 if (!CefParseExtensionValue(npb, ref i))
+                {
                     return false;
+                }
+
                 lenValue = i - iValue;
                 ++i; /* skip past value */
             }
@@ -521,14 +645,13 @@ internal static class StructuredParsers
             if (jroot != null)
             {
                 var sb = new StringBuilder(lenValue);
-                for (int iSrc = 0; iSrc < lenValue; ++iSrc)
+                for (var iSrc = 0; iSrc < lenValue; ++iSrc)
                 {
-                    char c = s[iValue + iSrc];
+                    var c = s[iValue + iSrc];
                     if (c == '\\')
                     {
                         ++iSrc; /* the next char is known to exist */
-                        sb.Append(s[iValue + iSrc] switch
-                        {
+                        sb.Append(s[iValue + iSrc] switch {
                             '=' => '=',
                             'n' => '\n',
                             'r' => '\r',
@@ -554,32 +677,41 @@ internal static class StructuredParsers
     private static bool CefGetHdrField(Npb npb, ref int offs, out string? val, bool want)
     {
         val = null;
-        string s = npb.Str;
-        int i = offs;
+        var s = npb.Str;
+        var i = offs;
         while (i < npb.StrLen && s[i] != '|')
         {
             if (s[i] == '\\')
             {
                 ++i; /* skip escape char */
                 if (npb.At(i) != '\\' && npb.At(i) != '|')
+                {
                     return false;
+                }
             }
             ++i;
         }
         if (npb.At(i) != '|')
+        {
             return false;
+        }
 
-        int iBegin = offs;
+        var iBegin = offs;
         offs = i + 1;
         if (!want)
+        {
             return true;
+        }
 
-        int len = i - iBegin;
+        var len = i - iBegin;
         var sb = new StringBuilder(len);
-        for (int iSrc = 0; iSrc < len; ++iSrc)
+        for (var iSrc = 0; iSrc < len; ++iSrc)
         {
             if (s[iBegin + iSrc] == '\\')
+            {
                 ++iSrc; /* validated above */
+            }
+
             sb.Append(s[iBegin + iSrc]);
         }
         val = sb.ToString();
@@ -591,38 +723,66 @@ internal static class StructuredParsers
         out int parsed, bool wantValue, ref JsonNode? value)
     {
         parsed = 0;
-        string s = npb.Str;
-        int i = offs;
+        var s = npb.Str;
+        var i = offs;
 
         /* minimum header: "CEF:0|x|x|x|x|x|x|" --> 17 chars */
         if (npb.StrLen < i + 17
             || s[i] != 'C' || s[i + 1] != 'E' || s[i + 2] != 'F' || s[i + 3] != ':'
             || s[i + 4] != '0' || s[i + 5] != '|')
+        {
             return ErrorCodes.WrongParser;
+        }
 
         i += 6; /* position after '|' */
 
-        if (!CefGetHdrField(npb, ref i, out string? vendor, wantValue)) return ErrorCodes.WrongParser;
-        if (!CefGetHdrField(npb, ref i, out string? product, wantValue)) return ErrorCodes.WrongParser;
-        if (!CefGetHdrField(npb, ref i, out string? version, wantValue)) return ErrorCodes.WrongParser;
-        if (!CefGetHdrField(npb, ref i, out string? sigID, wantValue)) return ErrorCodes.WrongParser;
-        if (!CefGetHdrField(npb, ref i, out string? name, wantValue)) return ErrorCodes.WrongParser;
-        if (!CefGetHdrField(npb, ref i, out string? severity, wantValue)) return ErrorCodes.WrongParser;
+        if (!CefGetHdrField(npb, ref i, out var vendor, wantValue))
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        if (!CefGetHdrField(npb, ref i, out var product, wantValue))
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        if (!CefGetHdrField(npb, ref i, out var version, wantValue))
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        if (!CefGetHdrField(npb, ref i, out var sigID, wantValue))
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        if (!CefGetHdrField(npb, ref i, out var name, wantValue))
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        if (!CefGetHdrField(npb, ref i, out var severity, wantValue))
+        {
+            return ErrorCodes.WrongParser;
+        }
 
         while (i < npb.StrLen && s[i] == ' ') /* skip leading SP */
+        {
             ++i;
+        }
 
         /* first validate the extensions, then extract on the second pass */
-        int iBeginExtensions = i;
+        var iBeginExtensions = i;
         if (!CefParseExtensions(npb, ref i, null))
+        {
             return ErrorCodes.WrongParser;
+        }
 
         parsed = i - offs;
 
         if (wantValue)
         {
-            var obj = new JsonObject
-            {
+            var obj = new JsonObject {
                 ["DeviceVendor"] = vendor,
                 ["DeviceProduct"] = product,
                 ["DeviceVersion"] = version,
@@ -632,7 +792,7 @@ internal static class StructuredParsers
             };
             var jext = new JsonObject();
             obj["Extensions"] = jext;
-            int iExt = iBeginExtensions;
+            var iExt = iBeginExtensions;
             CefParseExtensions(npb, ref iExt, jext);
             value = obj;
         }
@@ -651,7 +811,7 @@ internal static class StructuredParsers
         var data = new CheckpointLeaData();
         if (config["terminator"] is JsonValue val)
         {
-            string optval = val.GetValue<string>();
+            var optval = val.GetValue<string>();
             if (optval.Length != 1)
             {
                 ctx.Error($"terminator must be exactly one character but is: '{optval}'");
@@ -670,79 +830,122 @@ internal static class StructuredParsers
     {
         parsed = 0;
         var data = (CheckpointLeaData)pdata!;
-        string s = npb.Str;
-        int i = offs;
-        int foundFields = 0;
+        var s = npb.Str;
+        var i = offs;
+        var foundFields = 0;
         JsonObject? obj = null;
 
         while (i < npb.StrLen)
         {
             while (i < npb.StrLen && s[i] == ' ') /* skip leading SP */
+            {
                 ++i;
+            }
+
             if (i == npb.StrLen)
             {
                 /* trailing space is OK */
                 if (foundFields == 0)
+                {
                     return ErrorCodes.WrongParser;
+                }
+
                 break;
             }
             ++foundFields;
 
-            int iName = i;
+            var iName = i;
             if (i < npb.StrLen && s[i] == data.Terminator)
+            {
                 break;
+            }
+
             while (i < npb.StrLen && s[i] != ':')
+            {
                 ++i;
+            }
+
             if (i + 1 >= npb.StrLen || s[i] != ':')
+            {
                 return ErrorCodes.WrongParser;
+            }
             /* sometimes there are multiple colons */
             while (i + 1 < npb.StrLen && s[i + 1] == ':')
+            {
                 i++;
-            int lenName = i - iName;
+            }
+
+            var lenName = i - iName;
             ++i; /* skip ':' */
 
             while (i < npb.StrLen && s[i] == ' ')
+            {
                 ++i;
+            }
+
             if (i == npb.StrLen)
+            {
                 return ErrorCodes.WrongParser;
+            }
 
             int iValue;
             int lenValue;
             if (s[i] == '"')
             {
                 /* quoted value; a quote preceded by an odd backslash run is escaped */
-                int continuousBackslash = 0;
+                var continuousBackslash = 0;
                 iValue = i + 1;
                 i++;
                 while (i < npb.StrLen && (s[i] != '"' || (continuousBackslash & 1) == 1))
                 {
                     if (s[i] == '\\')
+                    {
                         ++continuousBackslash;
+                    }
                     else
+                    {
                         continuousBackslash = 0;
+                    }
+
                     ++i;
                 }
                 lenValue = i - iValue; /* the quotes are not part of the value */
                 if (i == npb.StrLen)
+                {
                     return ErrorCodes.WrongParser;
+                }
+
                 ++i; /* skip '"' */
             }
             else
             {
                 iValue = i;
                 while (i < npb.StrLen && s[i] != ';' && s[i] != data.Terminator)
+                {
                     ++i;
+                }
+
                 lenValue = i - iValue;
                 while (lenValue > 0 && s[iValue + lenValue - 1] == ' ')
+                {
                     --lenValue;
+                }
             }
 
             while (i < npb.StrLen && s[i] == ' ')
+            {
                 ++i;
+            }
+
             if (i >= npb.StrLen || (s[i] != ';' && s[i] != data.Terminator))
+            {
                 return ErrorCodes.WrongParser;
+            }
+
             if (s[i] == ';')
+            {
                 ++i; /* skip ';' */
+            }
 
             if (wantValue)
             {
@@ -753,7 +956,10 @@ internal static class StructuredParsers
 
         parsed = i - offs;
         if (wantValue && obj != null)
+        {
             value = obj;
+        }
+
         return 0;
     }
 }

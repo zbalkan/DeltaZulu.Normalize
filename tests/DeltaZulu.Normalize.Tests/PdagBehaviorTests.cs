@@ -1,4 +1,3 @@
-using DeltaZulu.Normalize;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static DeltaZulu.Normalize.Tests.TestHelpers;
 
@@ -194,7 +193,7 @@ public class PdagBehaviorTests
     [TestMethod]
     public void Prefix_LineIsPrependedToEveryRule()
     {
-        string rb = "prefix=%timestamp:date-rfc3164% %hostname:word% \n" +
+        var rb = "prefix=%timestamp:date-rfc3164% %hostname:word% \n" +
                     "rule=:hello %name:word%";
         var (r, j) = TestHelpers.Normalize(rb, "Aug 18 13:18:45 myhost hello world");
         Assert.AreEqual(0, r);

@@ -25,12 +25,18 @@ internal static class CoreParsers
     {
         parsed = 0;
         if (!TextRules.IsSpace(npb.At(offs)))
+        {
             return ErrorCodes.WrongParser;
-        ReadOnlySpan<char> rem = npb.Str.AsSpan(offs + 1);
-        int idx = rem.IndexOfAnyExcept(SpaceChars);
+        }
+
+        var rem = npb.Str.AsSpan(offs + 1);
+        var idx = rem.IndexOfAnyExcept(SpaceChars);
         parsed = 1 + (idx < 0 ? rem.Length : idx);
         if (wantValue)
+        {
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
         return 0;
     }
 
@@ -39,13 +45,19 @@ internal static class CoreParsers
     public static int ParseWord(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
-        ReadOnlySpan<char> rem = npb.Str.AsSpan(offs);
-        int idx = rem.IndexOf(' ');
+        var rem = npb.Str.AsSpan(offs);
+        var idx = rem.IndexOf(' ');
         parsed = idx < 0 ? rem.Length : idx;
         if (parsed == 0)
+        {
             return ErrorCodes.WrongParser;
+        }
+
         if (wantValue)
+        {
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
         return 0;
     }
 
@@ -54,13 +66,19 @@ internal static class CoreParsers
     public static int ParseAlpha(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
-        ReadOnlySpan<char> rem = npb.Str.AsSpan(offs);
-        int idx = rem.IndexOfAnyExcept(AlphaChars);
+        var rem = npb.Str.AsSpan(offs);
+        var idx = rem.IndexOfAnyExcept(AlphaChars);
         parsed = idx < 0 ? rem.Length : idx;
         if (parsed == 0)
+        {
             return ErrorCodes.WrongParser;
+        }
+
         if (wantValue)
+        {
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
         return 0;
     }
 
@@ -71,7 +89,10 @@ internal static class CoreParsers
     {
         parsed = npb.StrLen - offs;
         if (wantValue)
+        {
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
         return 0;
     }
 
@@ -90,7 +111,7 @@ internal static class CoreParsers
             ctx.Error("string-to type needs 'extradata' parameter");
             return ErrorCodes.BadConfig;
         }
-        string toFind = ed.GetValue<string>();
+        var toFind = ed.GetValue<string>();
         if (toFind.Length == 0)
         {
             ctx.Error("string-to type needs non-empty 'extradata' parameter");
@@ -106,22 +127,29 @@ internal static class CoreParsers
         out int parsed, bool wantValue, ref JsonNode? value)
     {
         parsed = 0;
-        string toFind = ((StringToData)pdata!).ToFind;
+        var toFind = ((StringToData)pdata!).ToFind;
 
         /* the C scanner's inner loop needs a char *after* toFind[0] to ever
          * set the found flag, so a single-char search string never matches;
          * kept faithfully. The match can also never start at offs (the C
          * loop increments before comparing). */
         if (toFind.Length < 2 || offs >= npb.StrLen)
+        {
             return ErrorCodes.WrongParser;
+        }
 
-        int idx = npb.Str.IndexOf(toFind, offs + 1, StringComparison.Ordinal);
+        var idx = npb.Str.IndexOf(toFind, offs + 1, StringComparison.Ordinal);
         if (idx < 0)
+        {
             return ErrorCodes.WrongParser;
+        }
 
         parsed = idx - offs;
         if (wantValue)
+        {
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
         return 0;
     }
 
@@ -151,13 +179,18 @@ internal static class CoreParsers
     {
         parsed = 0;
         var data = (CharToData)pdata!;
-        int idx = npb.Str.AsSpan(offs).IndexOfAny(data.TermChars);
+        var idx = npb.Str.AsSpan(offs).IndexOfAny(data.TermChars);
         if (idx <= 0) /* the terminator must exist, beyond a non-empty prefix */
+        {
             return ErrorCodes.WrongParser;
+        }
 
         parsed = idx;
         if (wantValue)
+        {
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
         return 0;
     }
 
@@ -186,11 +219,14 @@ internal static class CoreParsers
         out int parsed, bool wantValue, ref JsonNode? value)
     {
         var data = (CharSeparatedData)pdata!;
-        ReadOnlySpan<char> rem = npb.Str.AsSpan(offs);
-        int idx = rem.IndexOfAny(data.TermChars);
+        var rem = npb.Str.AsSpan(offs);
+        var idx = rem.IndexOfAny(data.TermChars);
         parsed = idx < 0 ? rem.Length : idx;
         if (wantValue)
+        {
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
         return 0;
     }
 
@@ -203,14 +239,22 @@ internal static class CoreParsers
     {
         parsed = 0;
         if (offs + 2 > npb.StrLen || npb.Str[offs] != '"')
+        {
             return ErrorCodes.WrongParser;
-        int idx = npb.Str.AsSpan(offs + 1).IndexOf('"');
+        }
+
+        var idx = npb.Str.AsSpan(offs + 1).IndexOf('"');
         if (idx < 0)
+        {
             return ErrorCodes.WrongParser;
+        }
 
         parsed = idx + 2; /* both quotes are consumed */
         if (wantValue)
+        {
             value = JsonValue.Create(npb.Str.Substring(offs + 1, parsed - 2));
+        }
+
         return 0;
     }
 
@@ -223,7 +267,7 @@ internal static class CoreParsers
     {
         pdata = null;
         var data = new OpQuotedStringData();
-        if (config.TryGetPropertyValue("escape", out JsonNode? obj))
+        if (config.TryGetPropertyValue("escape", out var obj))
         {
             if (obj is JsonValue v && v.TryGetValue(out bool b))
             {
@@ -248,19 +292,24 @@ internal static class CoreParsers
         out int parsed, bool wantValue, ref JsonNode? value)
     {
         parsed = 0;
-        bool escape = pdata is OpQuotedStringData d && d.Escape;
-        int i = offs;
+        var escape = pdata is OpQuotedStringData d && d.Escape;
+        var i = offs;
         string cstr;
 
         if (i == npb.StrLen)
+        {
             return ErrorCodes.WrongParser;
+        }
 
         if (npb.Str[i] != '"')
         {
-            int idxSp = npb.Str.AsSpan(offs).IndexOf(' ');
+            var idxSp = npb.Str.AsSpan(offs).IndexOf(' ');
             i = idxSp < 0 ? npb.StrLen : offs + idxSp;
             if (i == offs)
+            {
                 return ErrorCodes.WrongParser;
+            }
+
             parsed = i - offs;
             cstr = npb.Str.Substring(offs, parsed);
         }
@@ -269,25 +318,35 @@ internal static class CoreParsers
             ++i;
             /* the closing quote must not be escaped; a backslash escapes
              * itself, so only an odd run of backslashes escapes the quote */
-            int continuousBackslash = 0;
+            var continuousBackslash = 0;
             while (i < npb.StrLen && (npb.Str[i] != '"' || (continuousBackslash & 1) == 1))
             {
                 if (npb.Str[i] == '\\')
+                {
                     continuousBackslash++;
+                }
                 else
+                {
                     continuousBackslash = 0;
+                }
+
                 ++i;
             }
             if (i == npb.StrLen || npb.Str[i] != '"')
+            {
                 return ErrorCodes.WrongParser;
+            }
 
-            int end = i;
+            var end = i;
             i = offs + 1; /* eat starting quote */
             var sb = new StringBuilder(end - i);
             while (i < end)
             {
                 if (npb.Str[i] == '\\' && (npb.At(i + 1) == '\\' || npb.At(i + 1) == '"'))
+                {
                     i++;
+                }
+
                 sb.Append(npb.Str[i++]);
             }
             cstr = sb.ToString();
@@ -295,15 +354,21 @@ internal static class CoreParsers
         }
         else
         {
-            int idxQ = npb.Str.AsSpan(offs + 1).IndexOf('"');
+            var idxQ = npb.Str.AsSpan(offs + 1).IndexOf('"');
             if (idxQ < 0)
+            {
                 return ErrorCodes.WrongParser;
+            }
+
             parsed = idxQ + 2;
             cstr = npb.Str.Substring(offs + 1, parsed - 2);
         }
 
         if (wantValue)
+        {
             value = JsonValue.Create(cstr);
+        }
+
         return 0;
     }
 }

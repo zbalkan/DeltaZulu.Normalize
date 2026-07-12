@@ -134,5 +134,6 @@ internal sealed class CompiledPdag
     /// <see cref="LogNormOptions.CollectStats"/>. Increments are unsynchronized
     /// (racy but benign), exactly like the C library's counters.</summary>
     public int[]? StatsCalled;
+
     public int[]? StatsBacktracked;
 }

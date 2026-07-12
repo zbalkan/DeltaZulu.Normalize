@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using DeltaZulu.Normalize;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace DeltaZulu.Normalize.Tests;
@@ -54,8 +53,7 @@ public class LogNormContextTests
 
         using var stop = new CancellationTokenSource();
         var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
-        Task[] readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
-        {
+        Task[] readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() => {
             while (!stop.IsCancellationRequested)
             {
                 /* the initial rule must keep matching across every reload */
@@ -68,8 +66,11 @@ public class LogNormContextTests
             }
         })).ToArray();
 
-        for (int i = 1; i <= 50; i++)
+        for (var i = 1; i <= 50; i++)
+        {
             Assert.AreEqual(0, ctx.LoadSamplesFromString($"rule=:msg {i} %f:rest%"));
+        }
+
         stop.Cancel();
         Task.WaitAll(readers, TimeSpan.FromSeconds(30));
 

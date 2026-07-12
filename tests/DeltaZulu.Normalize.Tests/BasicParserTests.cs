@@ -159,7 +159,7 @@ public class BasicParserTests
     {
         var errors = new List<string>();
         var ctx = new LogNormContext { ErrorCallback = errors.Add };
-        int r = ctx.LoadSamplesFromString("""rule=:%f:string-to:%""");
+        var r = ctx.LoadSamplesFromString("""rule=:%f:string-to:%""");
         Assert.AreNotEqual(0, r);
     }
 
@@ -182,7 +182,7 @@ public class BasicParserTests
         var errors = new List<string>();
         var ctx = new LogNormContext { ErrorCallback = errors.Add };
 
-        int r = ctx.LoadSamplesFromString("""rule=:%f:string{"option.dashIsEmpty":"true"}%""");
+        var r = ctx.LoadSamplesFromString("""rule=:%f:string{"option.dashIsEmpty":"true"}%""");
 
         Assert.AreEqual(ErrorCodes.BadConfig, r);
         Assert.IsTrue(errors.Any(e => e.Contains("option.dashIsEmpty", StringComparison.Ordinal)));

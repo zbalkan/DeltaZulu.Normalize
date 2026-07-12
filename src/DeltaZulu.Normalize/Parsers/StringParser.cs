@@ -11,9 +11,14 @@ namespace DeltaZulu.Normalize.Parsers;
 /// </summary>
 internal static class StringParser
 {
-    internal enum QuoteMode { Auto = 0, None = 1, Required = 2 }
-    internal enum EscMode { None = 0, Backslash = 1, Double = 2, Both = 3 }
-    internal enum MatchingMode { Exact = 0, Lazy = 1 }
+    internal enum QuoteMode
+    { Auto = 0, None = 1, Required = 2 }
+
+    internal enum EscMode
+    { None = 0, Backslash = 1, Double = 2, Both = 3 }
+
+    internal enum MatchingMode
+    { Exact = 0, Lazy = 1 }
 
     internal sealed class Data
     {
@@ -51,30 +56,39 @@ internal static class StringParser
 
     private static void AddPermittedCharArr(Data data, string chars)
     {
-        foreach (char c in chars)
+        foreach (var c in chars)
+        {
             data.SetPermChar((byte)c);
+        }
     }
 
     private static void AddPermittedFromTo(Data data, char from, char to)
     {
         for (int c = from; c <= to; ++c)
+        {
             data.SetPermChar(c);
+        }
     }
 
     private static void AddPermittedChars(Data data, JsonNode? val)
     {
-        string? s = (val as JsonValue)?.GetValue<string>();
+        var s = (val as JsonValue)?.GetValue<string>();
         if (s != null)
+        {
             AddPermittedCharArr(data, s);
+        }
     }
 
     private static void AddPermittedCharsViaArray(LogNormContext ctx, Data data, JsonArray arr)
     {
-        foreach (JsonNode? elem in arr)
+        foreach (var elem in arr)
         {
             if (elem is not JsonObject eobj)
+            {
                 continue;
-            foreach ((string key, JsonNode? val) in eobj)
+            }
+
+            foreach ((var key, var val) in eobj)
             {
                 if (string.Equals(key, "chars", StringComparison.OrdinalIgnoreCase))
                 {
@@ -82,11 +96,15 @@ internal static class StringParser
                 }
                 else if (string.Equals(key, "class", StringComparison.OrdinalIgnoreCase))
                 {
-                    string optval = (val as JsonValue)?.GetValue<string>() ?? "";
+                    var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
                     if (string.Equals(optval, "digit", StringComparison.OrdinalIgnoreCase))
+                    {
                         AddPermittedCharArr(data, "0123456789");
+                    }
                     else if (string.Equals(optval, "hexdigit", StringComparison.OrdinalIgnoreCase))
+                    {
                         AddPermittedCharArr(data, "0123456789aAbBcCdDeEfF");
+                    }
                     else if (string.Equals(optval, "alpha", StringComparison.OrdinalIgnoreCase))
                     {
                         AddPermittedFromTo(data, 'a', 'z');
@@ -112,17 +130,23 @@ internal static class StringParser
         var data = new Data();
         data.FillAllPermChars();
 
-        foreach ((string key, JsonNode? val) in config)
+        foreach ((var key, var val) in config)
         {
             if (string.Equals(key, "quoting.mode", StringComparison.OrdinalIgnoreCase))
             {
-                string optval = (val as JsonValue)?.GetValue<string>() ?? "";
+                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
                 if (string.Equals(optval, "auto", StringComparison.OrdinalIgnoreCase))
+                {
                     data.QuoteMode = QuoteMode.Auto;
+                }
                 else if (string.Equals(optval, "none", StringComparison.OrdinalIgnoreCase))
+                {
                     data.QuoteMode = QuoteMode.None;
+                }
                 else if (string.Equals(optval, "required", StringComparison.OrdinalIgnoreCase))
+                {
                     data.QuoteMode = QuoteMode.Required;
+                }
                 else
                 {
                     ctx.Error($"invalid quoting.mode for string parser: {optval}");
@@ -132,15 +156,23 @@ internal static class StringParser
             }
             else if (string.Equals(key, "quoting.escape.mode", StringComparison.OrdinalIgnoreCase))
             {
-                string optval = (val as JsonValue)?.GetValue<string>() ?? "";
+                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
                 if (string.Equals(optval, "none", StringComparison.OrdinalIgnoreCase))
+                {
                     data.EscMd = EscMode.None;
+                }
                 else if (string.Equals(optval, "backslash", StringComparison.OrdinalIgnoreCase))
+                {
                     data.EscMd = EscMode.Backslash;
+                }
                 else if (string.Equals(optval, "double", StringComparison.OrdinalIgnoreCase))
+                {
                     data.EscMd = EscMode.Double;
+                }
                 else if (string.Equals(optval, "both", StringComparison.OrdinalIgnoreCase))
+                {
                     data.EscMd = EscMode.Both;
+                }
                 else
                 {
                     ctx.Error($"invalid quoting.escape.mode for string parser: {optval}");
@@ -150,7 +182,7 @@ internal static class StringParser
             }
             else if (string.Equals(key, "quoting.char.begin", StringComparison.OrdinalIgnoreCase))
             {
-                string optval = (val as JsonValue)?.GetValue<string>() ?? "";
+                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
                 if (optval.Length != 1)
                 {
                     ctx.Error($"quoting.char.begin must be exactly one character but is: '{optval}'");
@@ -161,7 +193,7 @@ internal static class StringParser
             }
             else if (string.Equals(key, "quoting.char.end", StringComparison.OrdinalIgnoreCase))
             {
-                string optval = (val as JsonValue)?.GetValue<string>() ?? "";
+                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
                 if (optval.Length != 1)
                 {
                     ctx.Error($"quoting.char.end must be exactly one character but is: '{optval}'");
@@ -175,19 +207,29 @@ internal static class StringParser
                 data.ClearPermChars();
                 data.Restricted = true;
                 if (val is JsonValue sv && sv.TryGetValue(out string? _))
+                {
                     AddPermittedChars(data, val);
+                }
                 else if (val is JsonArray arr)
+                {
                     AddPermittedCharsViaArray(ctx, data, arr);
+                }
                 else
+                {
                     ctx.Error($"matching.permitted is invalid object type, given as '{JsonText.ToCompactString(val)}");
+                }
             }
             else if (string.Equals(key, "matching.mode", StringComparison.OrdinalIgnoreCase))
             {
-                string optval = (val as JsonValue)?.GetValue<string>() ?? "";
+                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
                 if (string.Equals(optval, "strict", StringComparison.OrdinalIgnoreCase))
+                {
                     data.Matching = MatchingMode.Exact;
+                }
                 else if (string.Equals(optval, "lazy", StringComparison.OrdinalIgnoreCase))
+                {
                     data.Matching = MatchingMode.Lazy;
+                }
                 else
                 {
                     ctx.Error($"invalid matching.mode for string parser: {optval}");
@@ -198,7 +240,9 @@ internal static class StringParser
             else if (string.Equals(key, "option.dashIsEmpty", StringComparison.OrdinalIgnoreCase))
             {
                 if (val is JsonValue jv && jv.TryGetValue(out bool b))
+                {
                     data.DashIsEmpty = b;
+                }
                 else
                 {
                     ctx.Error($"option.dashIsEmpty is invalid object type, given as '{JsonText.ToCompactString(val)}'");
@@ -213,7 +257,10 @@ internal static class StringParser
         }
 
         if (data.QuoteMode == QuoteMode.None)
+        {
             data.EscMd = EscMode.None;
+        }
+
         pdata = data;
         return 0;
     }
@@ -224,14 +271,16 @@ internal static class StringParser
     {
         parsed = 0;
         var data = (Data)pdata!;
-        string s = npb.Str;
-        int i = offs;
-        bool haveQuotes = false;
-        bool hadEndQuote = false;
-        bool hadEscape = false;
+        var s = npb.Str;
+        var i = offs;
+        var haveQuotes = false;
+        var hadEndQuote = false;
+        var hadEscape = false;
 
         if (i == npb.StrLen)
+        {
             return ErrorCodes.WrongParser;
+        }
 
         if (data.QuoteMode == QuoteMode.Auto && npb.Str[i] == data.QCharBegin)
         {
@@ -285,40 +334,54 @@ internal static class StringParser
 
             /* terminating conditions */
             if (!haveQuotes && s[i] == ' ')
+            {
                 break;
+            }
             /* the table covers U+0000..U+00FF; a char above that range can
-             * never appear in a restricted set, and is permitted (like any
-             * byte in the C library's all-true table) in an unrestricted one */
+* never appear in a restricted set, and is permitted (like any
+* byte in the C library's all-true table) in an unrestricted one */
             if (s[i] > 'ÿ' ? data.Restricted : !data.IsPermChar(s[i]))
+            {
                 break;
+            }
+
             i++;
         }
 
         if (haveQuotes && !hadEndQuote)
+        {
             return ErrorCodes.WrongParser;
+        }
+
         if (i == offs)
+        {
             return ErrorCodes.WrongParser;
+        }
 
         if (i - offs < 1 || data.Matching == MatchingMode.Exact)
         {
-            int trmChkIdx = haveQuotes ? i + 1 : i;
+            var trmChkIdx = haveQuotes ? i + 1 : i;
             if (trmChkIdx != npb.StrLen && npb.At(trmChkIdx) != ' ')
+            {
                 return ErrorCodes.WrongParser;
+            }
         }
 
         parsed = i - offs;
         if (hadEndQuote)
+        {
             ++parsed; /* skip quote */
+        }
 
         if (wantValue)
         {
             if (data.DashIsEmpty)
             {
-                bool isQuotedDash = haveQuotes && parsed == 3 && s.AsSpan(offs, 3).SequenceEqual("\"-\"");
-                bool isBareDash = !haveQuotes && parsed == 1 && s[offs] == '-';
+                var isQuotedDash = haveQuotes && parsed == 3 && s.AsSpan(offs, 3).SequenceEqual("\"-\"");
+                var isBareDash = !haveQuotes && parsed == 1 && s[offs] == '-';
                 if (isQuotedDash || isBareDash)
                 {
-                    value = JsonValue.Create("");
+                    value = JsonValue.Create(string.Empty);
                     return 0;
                 }
             }
@@ -334,9 +397,12 @@ internal static class StringParser
                 strt = offs;
                 len = parsed;
             }
-            string cstr = s.Substring(strt, len);
+            var cstr = s.Substring(strt, len);
             if (hadEscape)
+            {
                 cstr = Unescape(cstr, data);
+            }
+
             value = JsonValue.Create(cstr);
         }
         return 0;
@@ -353,16 +419,16 @@ internal static class StringParser
     /// </summary>
     private static string Unescape(string cstr, Data data)
     {
-        char[] buffer = ArrayPool<char>.Shared.Rent(cstr.Length);
+        var buffer = ArrayPool<char>.Shared.Rent(cstr.Length);
         try
         {
-            int outLen = 0;
-            int j = 0;
+            var outLen = 0;
+            var j = 0;
             while (j < cstr.Length)
             {
-                bool isDoubledQuote = cstr[j] == data.QCharEnd && j + 1 < cstr.Length && cstr[j + 1] == data.QCharEnd
+                var isDoubledQuote = cstr[j] == data.QCharEnd && j + 1 < cstr.Length && cstr[j + 1] == data.QCharEnd
                     && (data.EscMd == EscMode.Double || data.EscMd == EscMode.Both);
-                bool isBackslashLeader = cstr[j] == '\\' && (data.EscMd == EscMode.Backslash || data.EscMd == EscMode.Both);
+                var isBackslashLeader = cstr[j] == '\\' && (data.EscMd == EscMode.Backslash || data.EscMd == EscMode.Both);
 
                 if (isDoubledQuote || isBackslashLeader)
                 {
@@ -373,13 +439,13 @@ internal static class StringParser
                     }
                     else
                     {
-                        j += 1; /* trailing lone escape char; nothing follows to keep */
+                        j++; /* trailing lone escape char; nothing follows to keep */
                     }
                 }
                 else
                 {
                     buffer[outLen++] = cstr[j];
-                    j += 1;
+                    j++;
                 }
             }
             return new string(buffer, 0, outLen);

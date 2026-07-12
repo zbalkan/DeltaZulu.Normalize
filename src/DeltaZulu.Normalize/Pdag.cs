@@ -36,6 +36,7 @@ public sealed class Pdag
 
     /// <summary>Rulebase file that defined the rule terminating here (for rule-location metadata).</summary>
     internal string? RulebaseFile;
+
     internal int RulebaseLineNumber;
 }
 
@@ -46,7 +47,7 @@ public sealed class Pdag
 internal sealed class ParserInstance
 {
     /// <summary>Parser ID: index into <see cref="ParserTable.Parsers"/>, or <see cref="ParserTable.CustomTypeId"/>.</summary>
-    public required byte PrsId { get; init; }
+    public byte PrsId { get; init; }
 
     /// <summary>Node to branch to when this parser succeeds.</summary>
     public Pdag Node = null!;

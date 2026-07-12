@@ -61,10 +61,13 @@ internal static class Normalizer
             {
                 if (value is JsonObject obj)
                 {
-                    foreach ((string key, JsonNode? val) in obj.ToList())
+                    foreach ((var key, var val) in obj.ToList())
                     {
                         if (failOnDuplicate && json.ContainsKey(key))
+                        {
                             return ErrorCodes.WrongParser;
+                        }
+
                         obj.Remove(key);
                         json[key] = val;
                     }
@@ -80,15 +83,21 @@ internal static class Normalizer
             if (value is JsonObject sub && sub.Count == 1 && sub.ContainsKey(".."))
             {
                 if (failOnDuplicate && json.ContainsKey(prs.Name))
+                {
                     return ErrorCodes.WrongParser;
-                JsonNode? dotdot = sub[".."];
+                }
+
+                var dotdot = sub[".."];
                 sub.Remove("..");
                 json[prs.Name] = dotdot;
             }
             else
             {
                 if (failOnDuplicate && json.ContainsKey(prs.Name))
+                {
                     return ErrorCodes.WrongParser;
+                }
+
                 json[prs.Name] = Detach(value);
             }
             return 0;
@@ -103,7 +112,10 @@ internal static class Normalizer
     internal static JsonNode? Detach(JsonNode? node)
     {
         if (node?.Parent != null)
+        {
             return node.DeepClone();
+        }
+
         return node;
     }
 
@@ -126,7 +138,7 @@ internal static class Normalizer
         string? parserName)
     {
         int r;
-        int parsedToSave = npb.ParsedTo;
+        var parsedToSave = npb.ParsedTo;
         valueMaterialized = false;
 
         if (prs.PrsId == ParserTable.CustomTypeId)
@@ -136,7 +148,7 @@ internal static class Normalizer
                 npb.ParsedTo = parsedToSave;
                 return ErrorCodes.WrongParser;
             }
-            int endNode = NoNode;
+            var endNode = NoNode;
             if (failOnDuplicate)
             {
                 valueMaterialized = true;
@@ -144,7 +156,9 @@ internal static class Normalizer
                 r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
                     (JsonObject)value, ref endNode, failOnDuplicate: true, curJson, parserName);
                 if (r != 0)
+                {
                     value = null;
+                }
             }
             else
             {
@@ -179,18 +193,18 @@ internal static class Normalizer
     /// </summary>
     private static void MaterializeValue(Npb npb, in CompiledEdge prs, int offs, ref JsonNode? value)
     {
-        int parsedToSave = npb.ParsedTo;
+        var parsedToSave = npb.ParsedTo;
         if (prs.PrsId == ParserTable.CustomTypeId)
         {
             var obj = new JsonObject();
-            int endNode = NoNode;
-            int r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
+            var endNode = NoNode;
+            var r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
                 obj, ref endNode, failOnDuplicate: false, curJson: null, parserName: prs.Name);
             value = r == 0 ? obj : null;
         }
         else
         {
-            int i = offs;
+            var i = offs;
             ParserTable.Dispatch(prs.PrsId, npb, ref i, prs.Data, prs.Name,
                 out _, wantValue: true, ref value);
         }
@@ -200,7 +214,7 @@ internal static class Normalizer
     /// <summary>Record the segment for the matching-rule mock-up (deepest-first, reversed at emit).</summary>
     private static void AddRuleToMockup(Npb npb, in CompiledEdge prs)
     {
-        string segment = prs.PrsId == ParserTable.LiteralId
+        var segment = prs.PrsId == ParserTable.LiteralId
             ? Parsers.LiteralParser.DataForDisplay(prs.Data!)
             : $"%{prs.Name ?? "-"}:{ParserTable.IdToName(prs.PrsId)}%";
         npb.RuleSegments!.Add(segment);
@@ -221,20 +235,22 @@ internal static class Normalizer
     public static int NormalizeRec(Npb npb, int nodeIdx, int offs, bool bPartialMatch,
         JsonObject? json, ref int endNode, bool failOnDuplicate, JsonObject? curJson, string? parserName)
     {
-        CompiledPdag snap = npb.Snap;
-        CompiledNode node = snap.Nodes[nodeIdx];
-        int r = ErrorCodes.WrongParser;
-        int parsedTo = npb.ParsedTo;
-        int parsed = 0;
+        var snap = npb.Snap;
+        var node = snap.Nodes[nodeIdx];
+        var r = ErrorCodes.WrongParser;
+        var parsedTo = npb.ParsedTo;
+        var parsed = 0;
         JsonNode? value = null;
 
         if (snap.StatsCalled is { } statsCalled)
-            statsCalled[nodeIdx]++;
-
-        int edgeEnd = node.EdgeStart + node.EdgeCount;
-        for (int iprs = node.EdgeStart; iprs < edgeEnd && r != 0; ++iprs)
         {
-            ref readonly CompiledEdge prs = ref snap.Edges[iprs];
+            statsCalled[nodeIdx]++;
+        }
+
+        var edgeEnd = node.EdgeStart + node.EdgeCount;
+        for (var iprs = node.EdgeStart; iprs < edgeEnd && r != 0; ++iprs)
+        {
+            ref readonly var prs = ref snap.Edges[iprs];
 
             /* a literal whose first char mismatches can be rejected without a
              * call; equivalent to a failed parse, which records no progress
@@ -247,11 +263,13 @@ internal static class Normalizer
             }
 
             if (failOnDuplicate && CheckDuplicate(curJson, prs.Name))
+            {
                 continue;
+            }
 
-            int i = offs;
-            int attemptParsedTo = offs;
-            int localR = TryParser(npb, ref i, ref parsed, ref value, out bool valueMaterialized,
+            var i = offs;
+            var attemptParsedTo = offs;
+            var localR = TryParser(npb, ref i, ref parsed, ref value, out var valueMaterialized,
                 in prs, failOnDuplicate, json, prs.Name);
             if (localR == 0)
             {
@@ -265,17 +283,29 @@ internal static class Normalizer
                     if (!valueMaterialized && json != null && prs.Name != null)
                     {
                         if (prs.Extract == ExtractMode.RawSpan)
+                        {
                             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+                        }
                         else
+                        {
                             MaterializeValue(npb, in prs, offs, ref value);
+                        }
                     }
-                    int rFix = FixJson(ref value, json, in prs, failOnDuplicate);
+                    var rFix = FixJson(ref value, json, in prs, failOnDuplicate);
                     if (rFix != 0)
+                    {
                         return rFix;
+                    }
+
                     if ((npb.Ctx.Options & LogNormOptions.AddRule) != 0)
+                    {
                         AddRuleToMockup(npb, in prs);
+                    }
+
                     if (parsedTo > npb.ParsedTo)
+                    {
                         npb.ParsedTo = parsedTo;
+                    }
                 }
                 else if (snap.StatsBacktracked is { } statsBacktracked)
                 {
@@ -285,7 +315,9 @@ internal static class Normalizer
             value = null; /* discard any uncommitted extraction */
 
             if (attemptParsedTo > npb.LongestParsedTo)
+            {
                 npb.LongestParsedTo = attemptParsedTo;
+            }
         }
 
         /* A terminal node may also have outgoing continuation parsers when
@@ -297,9 +329,15 @@ internal static class Normalizer
         {
             endNode = nodeIdx;
             if (offs > npb.ParsedTo)
+            {
                 npb.ParsedTo = offs;
+            }
+
             if (offs > npb.LongestParsedTo)
+            {
                 npb.LongestParsedTo = offs;
+            }
+
             r = 0;
         }
         return r;
@@ -307,23 +345,25 @@ internal static class Normalizer
 
     private static void AddRuleMetadata(Npb npb, JsonObject json, TerminalInfo endNode)
     {
-        LogNormContext ctx = npb.Ctx;
+        var ctx = npb.Ctx;
         JsonObject? metaRule = null;
 
         if ((ctx.Options & LogNormOptions.AddRule) != 0)
         {
             metaRule = new JsonObject();
             var sb = new StringBuilder();
-            for (int i = npb.RuleSegments!.Count - 1; i >= 0; --i)
+            for (var i = npb.RuleSegments!.Count - 1; i >= 0; --i)
+            {
                 sb.Append(npb.RuleSegments[i]);
+            }
+
             metaRule[RuleMockupKey] = sb.ToString();
         }
 
         if ((ctx.Options & LogNormOptions.AddRuleLocation) != 0)
         {
             metaRule ??= new JsonObject();
-            metaRule[RuleLocationKey] = new JsonObject
-            {
+            metaRule[RuleLocationKey] = new JsonObject {
                 ["file"] = endNode.RulebaseFile,
                 ["line"] = endNode.RulebaseLineNumber,
             };
@@ -346,24 +386,29 @@ internal static class Normalizer
     {
         var npb = new Npb { Ctx = ctx, Snap = snap, Str = str };
         if ((ctx.Options & LogNormOptions.AddRule) != 0)
+        {
             npb.RuleSegments = new List<string>();
+        }
 
         result = new JsonObject();
-        int endNode = NoNode;
-        int r = NormalizeRec(npb, snap.RootNode, 0, bPartialMatch: false, result, ref endNode,
+        var endNode = NoNode;
+        var r = NormalizeRec(npb, snap.RootNode, 0, bPartialMatch: false, result, ref endNode,
             failOnDuplicate: false, curJson: null, parserName: null);
 
         if (r == 0 && snap.Nodes[endNode].IsTerminal)
         {
             /* success, finalize the event */
-            TerminalInfo term = snap.Terminals[snap.Nodes[endNode].TerminalIdx];
+            var term = snap.Terminals[snap.Nodes[endNode].TerminalIdx];
             if (term.Tags != null)
             {
                 result["event.tags"] = term.Tags.DeepClone();
                 ctx.Annotations.Annotate(result, term.Tags);
             }
             if ((ctx.Options & LogNormOptions.AddOriginalMessage) != 0)
+            {
                 result[OriginalMsgKey] = str;
+            }
+
             AddRuleMetadata(npb, result, term);
         }
         else

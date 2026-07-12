@@ -42,12 +42,14 @@ public class NormalizationBenchmarks
 
     private static void AssertAll(LogNormContext ctx, string[] messages, bool shouldMatch)
     {
-        foreach (string msg in messages)
+        foreach (var msg in messages)
         {
-            bool matched = ctx.Normalize(msg, out _) == 0;
+            var matched = ctx.Normalize(msg, out _) == 0;
             if (matched != shouldMatch)
+            {
                 throw new InvalidOperationException(
-                    $"corpus error: '{msg}' {(matched ? "matched" : "did not match")} but should{(shouldMatch ? "" : " not")}");
+                    $"corpus error: '{msg}' {(matched ? "matched" : "did not match")} but should{(shouldMatch ? string.Empty : " not")}");
+            }
         }
     }
 
@@ -56,15 +58,21 @@ public class NormalizationBenchmarks
         var ctx = new LogNormContext();
         ctx.ErrorCallback = msg => throw new InvalidOperationException($"rulebase error: {msg}");
         if (ctx.LoadSamplesFromString(rulebase) != 0)
+        {
             throw new InvalidOperationException("rulebase load failed");
+        }
+
         return ctx;
     }
 
     private static int RunAll(LogNormContext ctx, string[] messages)
     {
-        int r = 0;
-        foreach (string msg in messages)
+        var r = 0;
+        foreach (var msg in messages)
+        {
             r += ctx.Normalize(msg, out _);
+        }
+
         return r;
     }
 
@@ -104,13 +112,19 @@ public class ConcurrentBenchmarks
     {
         var ctx = new LogNormContext();
         ctx.ErrorCallback = msg => throw new InvalidOperationException($"rulebase error: {msg}");
-        string rb = BenchmarkRulebases.TrieHeavy(200, out string[] match, out _);
+        var rb = BenchmarkRulebases.TrieHeavy(200, out var match, out _);
         if (ctx.LoadSamplesFromString(rb) != 0)
+        {
             throw new InvalidOperationException("rulebase load failed");
+        }
+
         _ctx = ctx;
         _messages = new string[MessagesPerInvoke];
-        for (int i = 0; i < MessagesPerInvoke; i++)
+        for (var i = 0; i < MessagesPerInvoke; i++)
+        {
             _messages[i] = match[i % match.Length];
+        }
+
         _ctx.Normalize(_messages[0], out _);
     }
 
@@ -123,21 +137,23 @@ public class ConcurrentBenchmarks
             Math.Max(1, MessagesPerInvoke / (Environment.ProcessorCount * 4))
         );
 
-        Parallel.ForEach(partitioner, new ParallelOptions
-        {
+        Parallel.ForEach(partitioner, new ParallelOptions {
             MaxDegreeOfParallelism = Environment.ProcessorCount
         },
-        range =>
-        {
-            for (int i = range.Item1; i < range.Item2; i++)
+        range => {
+            for (var i = range.Item1; i < range.Item2; i++)
+            {
                 _ctx.Normalize(_messages[i], out _);
+            }
         });
     }
 
     [Benchmark(OperationsPerInvoke = MessagesPerInvoke)]
     public void SingleThreadNormalize()
     {
-        for (int i = 0; i < MessagesPerInvoke; i++)
+        for (var i = 0; i < MessagesPerInvoke; i++)
+        {
             _ctx.Normalize(_messages[i], out _);
+        }
     }
 }

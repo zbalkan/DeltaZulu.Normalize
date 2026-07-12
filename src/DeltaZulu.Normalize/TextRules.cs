@@ -32,8 +32,16 @@ internal static class TextRules
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int HexVal(char c)
     {
-        if (IsDigit(c)) return c - '0';
-        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (IsDigit(c))
+        {
+            return c - '0';
+        }
+
+        if (c >= 'a' && c <= 'f')
+        {
+            return c - 'a' + 10;
+        }
+
         return c - 'A' + 10;
     }
 
@@ -45,19 +53,22 @@ internal static class TextRules
     public static string Unescape(string s)
     {
         if (s.IndexOf('\\') < 0)
+        {
             return s;
+        }
+
         var sb = new StringBuilder(s.Length);
-        int i = 0;
+        var i = 0;
         while (i < s.Length)
         {
-            char c = s[i];
+            var c = s[i];
             if (c != '\\' || i + 1 == s.Length)
             {
                 sb.Append(c);
                 ++i;
                 continue;
             }
-            char e = s[i + 1];
+            var e = s[i + 1];
             switch (e)
             {
                 case '\\': sb.Append('\\'); i += 2; break;
@@ -82,6 +93,7 @@ internal static class TextRules
                         ++i;
                     }
                     break;
+
                 default:
                     sb.Append(c); /* keep backslash, escape not recognized */
                     ++i;
