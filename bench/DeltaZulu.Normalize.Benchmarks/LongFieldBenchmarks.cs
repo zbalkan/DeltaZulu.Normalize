@@ -9,7 +9,7 @@ namespace DeltaZulu.Normalize.Benchmarks;
 /// user-agent strings or embedded payloads.
 /// </summary>
 [MemoryDiagnoser]
-[SimpleJob(warmupCount: 3, iterationCount: 10)]
+[SimpleJob(warmupCount: 5, iterationCount: 20)]
 public class LongFieldBenchmarks
 {
     private LogNormContext _ctx = null!;
