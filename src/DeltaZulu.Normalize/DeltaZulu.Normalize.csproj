@@ -10,6 +10,10 @@
     <Description>C# port of the DeltaZulu.Normalize v2 PDAG log normalization engine: parses unstructured log text into structured JSON using a rulebase compiled into a parse DAG.</Description>
     <PackageLicenseExpression>LGPL-2.1-or-later</PackageLicenseExpression>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <TieredCompilation>true</TieredCompilation>
+    <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>

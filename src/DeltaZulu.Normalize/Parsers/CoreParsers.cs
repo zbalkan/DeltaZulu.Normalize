@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -18,6 +19,7 @@ internal static class CoreParsers
         SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
 
     /// <summary>All whitespace up to the first non-whitespace char; must start on whitespace.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int ParseWhitespace(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
@@ -33,6 +35,7 @@ internal static class CoreParsers
     }
 
     /// <summary>A space-delimited entity (fails only when positioned on a space).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int ParseWord(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
@@ -47,6 +50,7 @@ internal static class CoreParsers
     }
 
     /// <summary>A run of alphabetic characters.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int ParseAlpha(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
@@ -61,6 +65,7 @@ internal static class CoreParsers
     }
 
     /// <summary>Everything to end-of-string; always succeeds (even consuming zero chars).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int ParseRest(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
@@ -96,6 +101,7 @@ internal static class CoreParsers
     }
 
     /// <summary>Everything up to a specific search string.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int ParseStringTo(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
@@ -139,6 +145,7 @@ internal static class CoreParsers
     }
 
     /// <summary>Everything up to one of a set of terminator characters, which must be present.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int ParseCharTo(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
@@ -174,6 +181,7 @@ internal static class CoreParsers
     }
 
     /// <summary>Everything up to a terminator char or end-of-string; always succeeds.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int ParseCharSeparated(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
@@ -189,6 +197,7 @@ internal static class CoreParsers
     /* ---------- quoted strings ---------- */
 
     /// <summary>A double-quoted string without escape support; quotes are stripped.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int ParseQuotedString(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
@@ -234,6 +243,7 @@ internal static class CoreParsers
     /// An optionally quoted string: either a space-delimited word, or a
     /// double-quoted string (quotes stripped; escape handling per config).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int ParseOpQuotedString(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using BenchmarkDotNet.Attributes;
 
 namespace DeltaZulu.Normalize.Benchmarks;
@@ -116,7 +117,21 @@ public class ConcurrentBenchmarks
     [Benchmark(OperationsPerInvoke = MessagesPerInvoke)]
     public void ConcurrentNormalize()
     {
-        Parallel.For(0, MessagesPerInvoke, i => _ctx.Normalize(_messages[i], out _));
+        var partitioner = Partitioner.Create(
+            0,
+            MessagesPerInvoke,
+            Math.Max(1, MessagesPerInvoke / (Environment.ProcessorCount * 4))
+        );
+
+        Parallel.ForEach(partitioner, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Environment.ProcessorCount
+        },
+        range =>
+        {
+            for (int i = range.Item1; i < range.Item2; i++)
+                _ctx.Normalize(_messages[i], out _);
+        });
     }
 
     [Benchmark(OperationsPerInvoke = MessagesPerInvoke)]

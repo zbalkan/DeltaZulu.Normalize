@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 
 namespace DeltaZulu.Normalize.Parsers;
@@ -202,6 +203,7 @@ internal static class StringParser
         return 0;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int Parse(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
