@@ -22,7 +22,7 @@ internal static class TestHelpers
     /// <summary>Assert that the normalized JSON output equals the expected JSON (order-independent).</summary>
     public static void AssertJsonEquals(string expectedJson, JsonNode? actual)
     {
-        JsonNode? expected = JsonNode.Parse(expectedJson);
+        var expected = JsonNode.Parse(expectedJson);
         var equal = JsonNode.DeepEquals(Normalize(expected), Normalize(actual));
         if (!equal)
         {
@@ -45,13 +45,27 @@ internal static class TestHelpers
             Assert.Fail($"Field '{fieldName}' not found in JSON: {obj.ToJsonString()}");
         }
 
-        var actualValue = fieldValue?.ToJsonString() ?? "null";
-        JsonNode? expectedNode = JsonNode.Parse(expectedValue);
-        var expectedJson = expectedNode?.ToJsonString() ?? "null";
-
-        if (actualValue != expectedJson)
+        /* an expectation written as a JSON object/array literal is compared
+          * structurally (order-independent); anything else is the expected
+          * plain string value of the field */
+        string trimmed = expectedValue.TrimStart();
+        if (trimmed.StartsWith('{') || trimmed.StartsWith('['))
         {
-            Assert.Fail($"Field '{fieldName}' mismatch.\nExpected: {expectedJson}\nActual:   {actualValue}");
+            var expectedNode = JsonNode.Parse(expectedValue);
+            if (!JsonNode.DeepEquals(Normalize(expectedNode), Normalize(fieldValue?.DeepClone())))
+            {
+                Assert.Fail($"Field '{fieldName}' mismatch.\nExpected: {expectedNode?.ToJsonString()}\nActual:   {fieldValue?.ToJsonString() ?? "null"}");
+            }
+        }
+        else
+        {
+            string actualValue = fieldValue is JsonValue jv && jv.TryGetValue(out string? s)
+               ? s
+               : fieldValue?.ToJsonString() ?? "null";
+            if (actualValue != expectedValue)
+            {
+                Assert.Fail($"Field '{fieldName}' mismatch.\nExpected: {expectedValue}\nActual:   {actualValue}");
+            }
         }
     }
 
