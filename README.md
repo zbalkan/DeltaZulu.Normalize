@@ -3,8 +3,8 @@
 A C# port of `liblognorm` v2's PDAG-based log normalization engine, targeting
 .NET 10. It parses unstructured log text into structured JSON using the same
 rulebase-compiled-to-a-parse-DAG model as the C library — see
-[`../doc/pdag_implementation_model.rst`](../doc/pdag_implementation_model.rst)
-for the underlying algorithm.
+[`pdag_implementation_model.rst`](https://github.com/rsyslog/liblognorm/blob/main/doc/pdag_implementation_model.rst)
+in the `liblognorm` repository for the underlying algorithm.
 
 ## Scope
 
