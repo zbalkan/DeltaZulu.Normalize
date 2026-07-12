@@ -1,0 +1,95 @@
+using System.Text;
+using DeltaZulu.Normalize;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static DeltaZulu.Normalize.Tests.TestHelpers;
+
+namespace DeltaZulu.Normalize.Tests;
+
+/// <summary>
+/// Regression tests for defects found during the hot-path review: the
+/// string parser's permitted-table char truncation, float number-mode
+/// formatting edge cases, and build-time blowup on heavily shared DAGs.
+/// </summary>
+[TestClass]
+public class CorrectnessFixTests
+{
+    [TestMethod]
+    public void StringParser_RestrictedSet_RejectsCharsAboveByteRange()
+    {
+        /* 'Ł' (U+0141) used to alias into table slot 0x41 ('A') and pass an
+         * alpha-restricted match */
+        const string rb = """
+            rule=:%{"name":"f", "type":"string", "matching.permitted":[ {"class":"alpha"} ]}% rest
+            """;
+        var (r, _) = TestHelpers.Normalize(rb, "Łód rest");
+        Assert.AreNotEqual(0, r, "non-ASCII char must not satisfy an alpha-restricted string");
+
+        var (rOk, j) = TestHelpers.Normalize(rb, "Abc rest");
+        Assert.AreEqual(0, rOk);
+        AssertJsonEquals("""{ "f": "Abc" }""", j);
+    }
+
+    [TestMethod]
+    public void StringParser_UnrestrictedSet_PermitsCharsAboveByteRange()
+    {
+        /* without matching.permitted every char is permitted, like the C
+         * library's all-true byte table */
+        const string rb = """
+            rule=:%{"name":"f", "type":"string"}% rest
+            """;
+        var (r, j) = TestHelpers.Normalize(rb, "Łód rest");
+        Assert.AreEqual(0, r);
+        AssertJsonEquals("""{ "f": "Łód" }""", j);
+    }
+
+    [DataTestMethod]
+    [DataRow("val 0.5 x", "0.5")]     /* plain: raw text kept */
+    [DataRow("val -0.25 x", "-0.25")] /* negative */
+    [DataRow("val 123 x", "123")]     /* integral */
+    [DataRow("val 00.5 x", "0.5")]    /* leading zeros: invalid JSON, computed value */
+    [DataRow("val 5. x", "5")]        /* trailing dot: invalid JSON, computed value */
+    public void Float_NumberFormat_EmitsValidJson(string message, string expected)
+    {
+        const string rb = """
+            rule=:val %{"name":"f", "type":"float", "format":"number"}% x
+            """;
+        var (r, j) = TestHelpers.Normalize(rb, message);
+        Assert.AreEqual(0, r);
+        Assert.AreEqual(expected, j["f"]!.ToJsonString());
+    }
+
+    [TestMethod]
+    public void HexNumber_UppercaseDigits_ParseCorrectly()
+    {
+        const string rb = """
+            rule=:h %{"name":"f", "type":"hexnumber", "format":"number"}% t
+            """;
+        var (r, j) = TestHelpers.Normalize(rb, "h 0xFF t");
+        Assert.AreEqual(0, r);
+        Assert.AreEqual("255", j["f"]!.ToJsonString());
+    }
+
+    [TestMethod]
+    [Timeout(10_000)]
+    public void Build_DeeplyNestedAlternatives_CompletesQuickly()
+    {
+        /* every "alternative" forks and re-joins at a shared node; 24 of them
+         * in sequence make the re-join nodes reachable via 2^24 textual paths.
+         * Without visited-marking the optimizer walk is exponential. */
+        var rule = new StringBuilder("rule=:start");
+        for (int i = 0; i < 24; i++)
+            rule.Append("""
+                 %{"type":"alternative", "parser":[ {"type":"literal", "text":"a"}, {"type":"literal", "text":"b"} ]}%
+                """.Trim().Insert(0, " "));
+        rule.Append(" %f:word%");
+
+        var msg = new StringBuilder("start");
+        for (int i = 0; i < 24; i++)
+            msg.Append(i % 2 == 0 ? " a" : " b");
+        msg.Append(" end");
+
+        var (r, j) = TestHelpers.Normalize(rule.ToString(), msg.ToString());
+        Assert.AreEqual(0, r);
+        AssertJsonEquals("""{ "f": "end" }""", j);
+    }
+}

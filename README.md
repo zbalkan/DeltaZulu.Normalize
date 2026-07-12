@@ -102,3 +102,9 @@ tags) is stripped from the CLI's output by default, matching the reference
 - `json`-typed rulebase parameters are read leniently, matching json-c: a
   quoted numeric string (e.g. `"priority":"1000"`) is accepted anywhere an
   integer is expected.
+- Text is processed as UTF-16 chars, not bytes. The C library sees UTF-8
+  bytes, so its per-byte character classes behave differently on non-ASCII
+  input. This port's `string` motif treats chars above U+00FF as permitted
+  when no `matching.permitted` restriction is configured (like C's all-true
+  byte table) and as not-permitted when one is (they cannot be named in the
+  byte-range table). ASCII behavior is identical to the C engine.

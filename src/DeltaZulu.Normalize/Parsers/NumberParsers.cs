@@ -169,17 +169,27 @@ internal static class NumberParsers
             {
                 /* the C library serializes with the original text; keep the
                  * raw representation when it is valid JSON */
-                try
-                {
-                    value = JsonNode.Parse(raw);
-                }
-                catch (System.Text.Json.JsonException)
-                {
-                    value = JsonValue.Create(val);
-                }
+                value = IsValidJsonNumber(raw)
+                    ? JsonNode.Parse(raw)
+                    : JsonValue.Create(val);
             }
         }
         return 0;
+    }
+
+    /// <summary>
+    /// Whether text scanned by ParseFloat ("-?" + digits with at most one '.')
+    /// is a valid JSON number token: JSON forbids a bare sign, a missing
+    /// integer part, a trailing '.', and leading zeros ("00.5", "01").
+    /// </summary>
+    private static bool IsValidJsonNumber(ReadOnlySpan<char> raw)
+    {
+        int i = raw[0] == '-' ? 1 : 0;
+        if (i == raw.Length || raw[i] == '.')
+            return false;
+        if (raw[i] == '0' && i + 1 < raw.Length && raw[i + 1] != '.')
+            return false;
+        return raw[^1] != '.';
     }
 
     internal sealed class HexNumberData
@@ -232,7 +242,7 @@ internal static class NumberParsers
 
         ulong val = 0;
         for (i += 2; i < npb.StrLen && TextRules.IsHexDigit(npb.Str[i]); i++)
-            val = unchecked(val * 16 + (ulong)TextRules.HexVal(char.ToLowerInvariant(npb.Str[i])));
+            val = unchecked(val * 16 + (ulong)TextRules.HexVal(npb.Str[i]));
 
         if (!TextRules.IsSpace(npb.At(i)))
             return ErrorCodes.WrongParser;

@@ -23,8 +23,14 @@ internal static class StringParser
         public char QCharBegin = '"';
         public char QCharEnd = '"';
 
-        /// <summary>Permitted-character bitmap, indexed by (byte)char.</summary>
+        /// <summary>Permitted-character bitmap for the U+0000..U+00FF range.</summary>
         public readonly bool[] PermChars = new bool[256];
+
+        /// <summary>True when "matching.permitted" restricted the set; chars
+        /// above U+00FF (unrepresentable in the table) are then rejected.
+        /// Without a restriction every char is permitted, like the C library's
+        /// all-true byte table.</summary>
+        public bool Restricted;
     }
 
     private static void AddPermittedCharArr(Data data, string chars)
@@ -151,6 +157,7 @@ internal static class StringParser
             else if (string.Equals(key, "matching.permitted", StringComparison.OrdinalIgnoreCase))
             {
                 Array.Clear(data.PermChars);
+                data.Restricted = true;
                 if (val is JsonValue sv && sv.TryGetValue(out string? _))
                     AddPermittedChars(data, val);
                 else if (val is JsonArray arr)
@@ -262,7 +269,10 @@ internal static class StringParser
             /* terminating conditions */
             if (!haveQuotes && s[i] == ' ')
                 break;
-            if (!data.PermChars[(byte)s[i]])
+            /* the table covers U+0000..U+00FF; a char above that range can
+             * never appear in a restricted set, and is permitted (like any
+             * byte in the C library's all-true table) in an unrestricted one */
+            if (s[i] > 'ÿ' ? data.Restricted : !data.PermChars[s[i]])
                 break;
             i++;
         }

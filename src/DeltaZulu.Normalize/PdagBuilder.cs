@@ -276,8 +276,14 @@ internal static class PdagBuilder
         }
     }
 
-    private static void OptimizeComponent(Pdag dag)
+    private static void OptimizeComponent(Pdag dag, HashSet<Pdag> visited)
     {
+        /* shared nodes (prefix merging, "alternative" re-joins) are reachable
+         * via many paths; without this check the walk re-visits them once per
+         * path, which is exponential in nested-diamond depth */
+        if (!visited.Add(dag))
+            return;
+
         if (dag.Parsers.Count > 1)
         {
             /* stable sort keeps rule-definition order for equal priorities */
@@ -289,15 +295,17 @@ internal static class PdagBuilder
         foreach (ParserInstance prs in dag.Parsers)
         {
             CompactLiteralPath(prs);
-            OptimizeComponent(prs.Node);
+            OptimizeComponent(prs.Node, visited);
         }
     }
 
-    private static void DeleteComponentIds(Pdag dag)
+    private static void DeleteComponentIds(Pdag dag, HashSet<Pdag>? visited = null)
     {
+        if (visited != null && !visited.Add(dag))
+            return;
         dag.RulebaseId = null;
         foreach (ParserInstance prs in dag.Parsers)
-            DeleteComponentIds(prs.Node);
+            DeleteComponentIds(prs.Node, visited);
     }
 
     /// <summary>
@@ -351,15 +359,30 @@ internal static class PdagBuilder
         }
     }
 
-    /// <summary>Optimize the full PDAG, i.e. all components (port of ln_pdagOptimize).</summary>
+    /// <summary>Optimize the full PDAG, i.e. all components (port of ln_pdagOptimize).
+    /// Component IDs (a display aid for stats/DOT) are assigned separately by
+    /// <see cref="AssignComponentIds"/> — their merge step intentionally
+    /// re-visits shared nodes and must not run on the normalize path.</summary>
     public static void Optimize(LogNormContext ctx)
     {
+        var visited = new HashSet<Pdag>();
         foreach (TypePdag t in ctx.TypePdags)
-        {
-            OptimizeComponent(t.Dag);
+            OptimizeComponent(t.Dag, visited);
+        OptimizeComponent(ctx.Root, visited);
+    }
+
+    /// <summary>Assign human-readable node IDs on demand (DOT/stats display).
+    /// Clears any previous assignment first: SetComponentIds merges IDs when it
+    /// re-reaches a node, so re-running it over existing IDs would corrupt them.</summary>
+    public static void AssignComponentIds(LogNormContext ctx)
+    {
+        var cleared = new HashSet<Pdag>();
+        foreach (TypePdag t in ctx.TypePdags)
+            DeleteComponentIds(t.Dag, cleared);
+        DeleteComponentIds(ctx.Root, cleared);
+
+        foreach (TypePdag t in ctx.TypePdags)
             SetComponentIds(t.Dag, "");
-        }
-        OptimizeComponent(ctx.Root);
         SetComponentIds(ctx.Root, "");
     }
 
@@ -367,6 +390,7 @@ internal static class PdagBuilder
 
     public static string GenerateDot(LogNormContext ctx)
     {
+        AssignComponentIds(ctx);
         var sb = new StringBuilder();
         var ids = new Dictionary<Pdag, int>();
         var visited = new HashSet<Pdag>();
