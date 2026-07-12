@@ -25,26 +25,40 @@ internal static class StringParser
         public char QCharBegin = '"';
         public char QCharEnd = '"';
 
-        /// <summary>Permitted-character bitmap for the U+0000..U+00FF range.</summary>
-        public readonly bool[] PermChars = new bool[256];
+        /// <summary>Permitted-character bitset for the U+0000..U+00FF range,
+        /// packed as 4 ulongs (256 bits) instead of a bool[256] for a smaller
+        /// footprint and cheaper per-char membership test in the hot loop.</summary>
+        private readonly ulong[] _permChars = new ulong[4];
 
         /// <summary>True when "matching.permitted" restricted the set; chars
         /// above U+00FF (unrepresentable in the table) are then rejected.
         /// Without a restriction every char is permitted, like the C library's
         /// all-true byte table.</summary>
         public bool Restricted;
+
+        public void FillAllPermChars()
+        {
+            _permChars[0] = _permChars[1] = _permChars[2] = _permChars[3] = ulong.MaxValue;
+        }
+
+        public void ClearPermChars() => Array.Clear(_permChars);
+
+        public void SetPermChar(int c) => _permChars[c >> 6] |= 1UL << (c & 63);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool IsPermChar(char c) => (_permChars[c >> 6] & (1UL << (c & 63))) != 0;
     }
 
     private static void AddPermittedCharArr(Data data, string chars)
     {
         foreach (char c in chars)
-            data.PermChars[(byte)c] = true;
+            data.SetPermChar((byte)c);
     }
 
     private static void AddPermittedFromTo(Data data, char from, char to)
     {
         for (int c = from; c <= to; ++c)
-            data.PermChars[c] = true;
+            data.SetPermChar(c);
     }
 
     private static void AddPermittedChars(Data data, JsonNode? val)
@@ -96,7 +110,7 @@ internal static class StringParser
     public static int Construct(LogNormContext ctx, JsonObject config, out object? pdata)
     {
         var data = new Data();
-        Array.Fill(data.PermChars, true);
+        data.FillAllPermChars();
 
         foreach ((string key, JsonNode? val) in config)
         {
@@ -158,7 +172,7 @@ internal static class StringParser
             }
             else if (string.Equals(key, "matching.permitted", StringComparison.OrdinalIgnoreCase))
             {
-                Array.Clear(data.PermChars);
+                data.ClearPermChars();
                 data.Restricted = true;
                 if (val is JsonValue sv && sv.TryGetValue(out string? _))
                     AddPermittedChars(data, val);
@@ -275,7 +289,7 @@ internal static class StringParser
             /* the table covers U+0000..U+00FF; a char above that range can
              * never appear in a restricted set, and is permitted (like any
              * byte in the C library's all-true table) in an unrestricted one */
-            if (s[i] > 'ÿ' ? data.Restricted : !data.PermChars[s[i]])
+            if (s[i] > 'ÿ' ? data.Restricted : !data.IsPermChar(s[i]))
                 break;
             i++;
         }

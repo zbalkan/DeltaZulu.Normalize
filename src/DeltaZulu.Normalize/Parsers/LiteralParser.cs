@@ -34,9 +34,21 @@ internal static class LiteralParser
     {
         string lit = ((Data)pdata!).Lit;
 
-        /* vectorized prefix compare; we must always report how far we got
-         * (the partial length feeds the "unparsed-data" diagnostics) */
-        parsed = npb.Str.AsSpan(offs).CommonPrefixLength(lit);
+        /* we must always report how far we got, matched or not (the partial
+         * length feeds the "unparsed-data" diagnostics) */
+        if (lit.Length == 1)
+        {
+            parsed = npb.At(offs) == lit[0] ? 1 : 0;
+        }
+        else if (lit.Length == 2)
+        {
+            parsed = npb.At(offs) == lit[0] ? (npb.At(offs + 1) == lit[1] ? 2 : 1) : 0;
+        }
+        else
+        {
+            /* vectorized prefix compare for longer literals */
+            parsed = npb.Str.AsSpan(offs).CommonPrefixLength(lit);
+        }
         if (parsed != lit.Length)
             return ErrorCodes.WrongParser;
         if (wantValue)
