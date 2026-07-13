@@ -7,6 +7,8 @@ rulebase-compiled-to-a-parse-DAG model as the C library — see
 in the `liblognorm` repository for the underlying algorithm.
 
 ## Scope
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FDeltaZulu-OU%2FDeltaZulu.Normalize.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FDeltaZulu-OU%2FDeltaZulu.Normalize?ref=badge_shield)
+
 
 This is a **direct port of the v2 engine only**:
 
@@ -191,3 +193,7 @@ dotnet run --project tools/LogCluster.Cli -- -s 2 /path/to/logs
 ```
 
 The CLI reads log lines from files, directories, or standard input. It prints each candidate in both LogCluster wildcard form and suggested liblognorm rule form; use `--json` for machine-readable output or `--verbose` to inspect gap samples and parser confidence. Parser suggestions are limited to motifs implemented by this repository (`ipv4`, `ipv6`, `mac48`, `date-iso`, `number`, `float`, `word`, and `rest`). Generated rules are suggestions for human review, not authoritative rulebase changes.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FDeltaZulu-OU%2FDeltaZulu.Normalize.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FDeltaZulu-OU%2FDeltaZulu.Normalize?ref=badge_large)
