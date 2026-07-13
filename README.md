@@ -160,3 +160,15 @@ that audit, and which are outright new capabilities with no C equivalent.
 - The `cef` motif rejects a message ending in a dangling, unescaped
   trailing backslash inside the last extension value, where the C engine
   accepts it but copies an out-of-bounds byte into the extracted value.
+
+## LogCluster.NET pattern discovery CLI
+
+This repository also includes `logcluster`, a batch log pattern mining tool that helps rule authors discover recurring message structures before writing liblognorm rules. It preserves the LogCluster-style flow: stream input into a compact tokenized representation with interned word identifiers, count frequent words once per record, use surviving words as structural anchors, treat words between anchors as variable gaps, collect bounded gap evidence, suggest parser types after clustering, and rank candidates by support, anchor quality, gap consistency, and specificity.
+
+Example:
+
+```sh
+dotnet run --project tools/LogCluster.Cli -- -s 2 /path/to/logs
+```
+
+The CLI reads log lines from files, directories, or standard input. It prints each candidate in both LogCluster wildcard form and suggested liblognorm rule form; use `--json` for machine-readable output or `--verbose` to inspect gap samples and parser confidence. Parser suggestions are limited to motifs implemented by this repository (`ipv4`, `ipv6`, `mac48`, `date-iso`, `number`, `float`, `word`, and `rest`). Generated rules are suggestions for human review, not authoritative rulebase changes.
