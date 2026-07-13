@@ -22,8 +22,9 @@ public class LongFieldBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _ctx = new LogNormContext();
-        _ctx.ErrorCallback = msg => throw new InvalidOperationException($"rulebase error: {msg}");
+        _ctx = new LogNormContext {
+            ErrorCallback = msg => throw new InvalidOperationException($"rulebase error: {msg}")
+        };
         var longLiteral = string.Concat(Enumerable.Repeat("prefix-segment/", 20)); /* 300 chars */
         var r = _ctx.LoadSamplesFromString($"""
             rule=:ct %f:char-to:;%; %r:rest%

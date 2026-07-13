@@ -103,9 +103,9 @@ internal static class PdagBuilder
         var node = new ParserInstance {
             PrsId = prsid,
             Conf = textconf,
+            Priority = ((assignedPrio << 8) & unchecked((int)0xffffff00)) | (parserPrio & 0xff),
+            Name = name
         };
-        node.Priority = ((assignedPrio << 8) & unchecked((int)0xffffff00)) | (parserPrio & 0xff);
-        node.Name = name;
         if (prsid == ParserTable.CustomTypeId)
         {
             node.CustomTypeIndex = custType;

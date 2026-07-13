@@ -56,8 +56,9 @@ public class NormalizationBenchmarks
 
     private static LogNormContext Load(string rulebase)
     {
-        var ctx = new LogNormContext();
-        ctx.ErrorCallback = msg => throw new InvalidOperationException($"rulebase error: {msg}");
+        var ctx = new LogNormContext {
+            ErrorCallback = msg => throw new InvalidOperationException($"rulebase error: {msg}")
+        };
         if (ctx.LoadSamplesFromString(rulebase) != 0)
         {
             throw new InvalidOperationException("rulebase load failed");
@@ -137,8 +138,9 @@ public class ConcurrentBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        var ctx = new LogNormContext();
-        ctx.ErrorCallback = msg => throw new InvalidOperationException($"rulebase error: {msg}");
+        var ctx = new LogNormContext {
+            ErrorCallback = msg => throw new InvalidOperationException($"rulebase error: {msg}")
+        };
         var rb = BenchmarkRulebases.TrieHeavy(200, out var match, out _);
         if (ctx.LoadSamplesFromString(rb) != 0)
         {
