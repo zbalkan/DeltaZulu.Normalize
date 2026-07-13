@@ -270,6 +270,16 @@ and running the real C library)
   locking only around compilation) makes concurrent load+normalize safe.
   Already framed correctly as an added capability in the README/`Layout`
   section, not a behavior change to compare against.
+- **Flat result type (`NormalizeResult`).** The engine commits extracted
+  fields into a flat (name, value) collector during the walk; the
+  `JsonObject` the classic overload returns is materialized from it at the
+  end, and the `NormalizeResult` overload exposes the flat form directly —
+  string values as zero-copy slices of the input message, with JSON text
+  serialized straight from the slices. The C library has no equivalent
+  (its `json_object` result *is* the working representation). The fixJSON
+  special-name semantics ("." splice including the mid-splice duplicate
+  abort, single-".." unwrap, unnamed-field drop) are ported onto the
+  collector unchanged.
 
 ## 4. API, error codes, `annotate=`, CLI, and test-suite breadth
 

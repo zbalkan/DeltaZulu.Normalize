@@ -63,4 +63,13 @@ public class LongFieldBenchmarks
 
     [Benchmark]
     public int LongLiteral() => _ctx.Normalize(_literalMsg, out JsonObject _);
+
+    /* flat-result variants: the 300-char field values stay slices of the
+     * input message, so no per-field string copy occurs */
+
+    [Benchmark]
+    public int LongCharToFlat() => _ctx.Normalize(_charToMsg, out NormalizeResult _);
+
+    [Benchmark]
+    public int LongWordFlat() => _ctx.Normalize(_wordMsg, out NormalizeResult _);
 }

@@ -84,9 +84,28 @@ ctx.LoadSamplesFromString("""
     rule=:%date:date-rfc3164% %host:word% %tag:char-to:\x3a%: no longer listening on %ip:ipv4%#%port:number%
     """);
 
-int r = ctx.Normalize("Oct 29 09:47:08 myhost sshd: no longer listening on 192.168.1.1#22", out var json);
+int r = ctx.Normalize("Oct 29 09:47:08 myhost sshd: no longer listening on 192.168.1.1#22", out JsonObject json);
 // json: {"date":"Oct 29 09:47:08","host":"myhost","tag":"sshd","ip":"192.168.1.1","port":"22"}
 ```
+
+On hot paths, the `NormalizeResult` overload avoids building a `JsonObject`
+at all: extracted string values stay zero-copy slices of the input message,
+and JSON representations are produced only on demand (serializing to JSON
+text writes the slices directly, with no per-field string allocation):
+
+```csharp
+int r = ctx.Normalize(message, out NormalizeResult result);
+if (result.TryGetRawText("ip", out ReadOnlyMemory<char> ip)) { /* no allocation */ }
+string json = result.ToJsonString();       // serialize straight from the slices
+JsonObject obj = result.ToJsonObject();    // materialized once, then cached
+```
+
+Two things to be aware of: a live `NormalizeResult` keeps the whole input
+message string reachable (its values are slices of it), and its lazy
+materialization is not thread-safe — confine an instance to one thread, like
+any `JsonNode`. Note for existing code: because `Normalize` now has two
+out-parameter overloads, call sites must name the result type
+(`out JsonObject json`, not `out var json`).
 
 Rulebases can also be loaded from files or whole directory trees, all merged
 into one combined PDAG:

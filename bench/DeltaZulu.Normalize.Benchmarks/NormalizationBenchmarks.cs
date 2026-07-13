@@ -91,6 +91,32 @@ public class NormalizationBenchmarks
 
     [Benchmark(OperationsPerInvoke = 4)]
     public int Structured() => RunAll(_structuredCtx, _structuredMatch);
+
+    /* flat-result variants of Structured: no JsonObject is ever built */
+
+    [Benchmark(OperationsPerInvoke = 4)]
+    public int StructuredFlatOnly()
+    {
+        var r = 0;
+        foreach (var msg in _structuredMatch)
+        {
+            r += _structuredCtx.Normalize(msg, out NormalizeResult _);
+        }
+
+        return r;
+    }
+
+    [Benchmark(OperationsPerInvoke = 4)]
+    public int StructuredToJsonText()
+    {
+        var r = 0;
+        foreach (var msg in _structuredMatch)
+        {
+            r += _structuredCtx.NormalizeToString(msg, out _);
+        }
+
+        return r;
+    }
 }
 
 /// <summary>
