@@ -151,6 +151,11 @@ coverage*.info
 *.coverage
 *.coveragexml
 
+# Test and coverage
+TestResults/
+coverage/
+artifacts/
+
 # NCrunch
 _NCrunch_*
 .*crunch*.local.xml
@@ -365,3 +370,12 @@ FodyWeavers.xsd
 # git diff and patch files
 *.diff
 *.patch
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.db.wal
+
+# Lock file
+packages.lock.json
