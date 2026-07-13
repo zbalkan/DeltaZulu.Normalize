@@ -351,6 +351,11 @@ internal static class RulebaseLoader
                 return 0;
 
             case "extendprefix":
+                /* the C library's equivalent (extendPrefix in samp.c) assumes
+                 * a prefix already exists and has no guard for a NULL one;
+                 * treating a "bare" extendprefix= as equivalent to prefix= is
+                 * an intentional, more defensive choice, not a faithfully
+                 * ported quirk */
                 ctx.RulePrefix = (ctx.RulePrefix ?? "") + line[offs..];
                 return 0;
 

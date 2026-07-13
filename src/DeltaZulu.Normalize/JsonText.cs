@@ -155,6 +155,15 @@ internal static class JsonText
         return 0;
     }
 
+    /// <summary>
+    /// Read a string the way json-c's json_object_get_string does: a JSON
+    /// string passes through unchanged, but any other scalar (number, bool)
+    /// is coerced to its JSON text form instead of throwing. Returns null
+    /// only for a non-scalar node (object/array) or a missing value.
+    /// </summary>
+    public static string? GetLenientString(JsonNode? node)
+        => node is JsonValue v ? (v.TryGetValue(out string? s) ? s : v.ToJsonString()) : null;
+
     public static readonly JsonSerializerOptions SerializerOptions = new() {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };

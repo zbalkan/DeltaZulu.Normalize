@@ -57,7 +57,7 @@ internal static class PdagBuilder
             ctx.Error($"parser type missing in config: {textconf}");
             return null;
         }
-        var typeName = typeVal.GetValue<string>();
+        var typeName = JsonText.GetLenientString(typeVal)!;
         if (typeName.StartsWith('@'))
         {
             prsid = ParserTable.CustomTypeId;
@@ -83,7 +83,7 @@ internal static class PdagBuilder
         string? name = null;
         if (prscnf["name"] is JsonValue nameVal)
         {
-            var s = nameVal.GetValue<string>();
+            var s = JsonText.GetLenientString(nameVal)!;
             if (s != "-")
             {
                 name = s;
@@ -232,7 +232,7 @@ internal static class PdagBuilder
         int r;
         if (prscnf is JsonObject obj)
         {
-            var ftype = (obj["type"] as JsonValue)?.GetValue<string>();
+            var ftype = JsonText.GetLenientString(obj["type"]);
             if (ftype == "alternative")
             {
                 if (obj["parser"] is not JsonArray alternatives)

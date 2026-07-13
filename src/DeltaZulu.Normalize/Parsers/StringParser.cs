@@ -72,7 +72,7 @@ internal static class StringParser
 
     private static void AddPermittedChars(Data data, JsonNode? val)
     {
-        var s = (val as JsonValue)?.GetValue<string>();
+        var s = JsonText.GetLenientString(val);
         if (s != null)
         {
             AddPermittedCharArr(data, s);
@@ -96,7 +96,7 @@ internal static class StringParser
                 }
                 else if (string.Equals(key, "class", StringComparison.OrdinalIgnoreCase))
                 {
-                    var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                    var optval = JsonText.GetLenientString(val) ?? string.Empty;
                     if (string.Equals(optval, "digit", StringComparison.OrdinalIgnoreCase))
                     {
                         AddPermittedCharArr(data, "0123456789");
@@ -134,7 +134,7 @@ internal static class StringParser
         {
             if (string.Equals(key, "quoting.mode", StringComparison.OrdinalIgnoreCase))
             {
-                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                var optval = JsonText.GetLenientString(val) ?? string.Empty;
                 if (string.Equals(optval, "auto", StringComparison.OrdinalIgnoreCase))
                 {
                     data.QuoteMode = QuoteMode.Auto;
@@ -156,7 +156,7 @@ internal static class StringParser
             }
             else if (string.Equals(key, "quoting.escape.mode", StringComparison.OrdinalIgnoreCase))
             {
-                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                var optval = JsonText.GetLenientString(val) ?? string.Empty;
                 if (string.Equals(optval, "none", StringComparison.OrdinalIgnoreCase))
                 {
                     data.EscMd = EscMode.None;
@@ -182,7 +182,7 @@ internal static class StringParser
             }
             else if (string.Equals(key, "quoting.char.begin", StringComparison.OrdinalIgnoreCase))
             {
-                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                var optval = JsonText.GetLenientString(val) ?? string.Empty;
                 if (optval.Length != 1)
                 {
                     ctx.Error($"quoting.char.begin must be exactly one character but is: '{optval}'");
@@ -193,7 +193,7 @@ internal static class StringParser
             }
             else if (string.Equals(key, "quoting.char.end", StringComparison.OrdinalIgnoreCase))
             {
-                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                var optval = JsonText.GetLenientString(val) ?? string.Empty;
                 if (optval.Length != 1)
                 {
                     ctx.Error($"quoting.char.end must be exactly one character but is: '{optval}'");
@@ -221,7 +221,7 @@ internal static class StringParser
             }
             else if (string.Equals(key, "matching.mode", StringComparison.OrdinalIgnoreCase))
             {
-                var optval = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                var optval = JsonText.GetLenientString(val) ?? string.Empty;
                 if (string.Equals(optval, "strict", StringComparison.OrdinalIgnoreCase))
                 {
                     data.Matching = MatchingMode.Exact;

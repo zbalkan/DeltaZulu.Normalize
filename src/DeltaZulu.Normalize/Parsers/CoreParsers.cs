@@ -111,7 +111,7 @@ internal static class CoreParsers
             ctx.Error("string-to type needs 'extradata' parameter");
             return ErrorCodes.BadConfig;
         }
-        var toFind = ed.GetValue<string>();
+        var toFind = JsonText.GetLenientString(ed)!;
         if (toFind.Length == 0)
         {
             ctx.Error("string-to type needs non-empty 'extradata' parameter");
@@ -168,7 +168,7 @@ internal static class CoreParsers
             ctx.Error("char-to type needs 'extradata' parameter");
             return ErrorCodes.BadConfig;
         }
-        pdata = new CharToData { TermChars = SearchValues.Create(ed.GetValue<string>()) };
+        pdata = new CharToData { TermChars = SearchValues.Create(JsonText.GetLenientString(ed)!) };
         return 0;
     }
 
@@ -209,7 +209,7 @@ internal static class CoreParsers
             ctx.Error("char-separated type needs 'extradata' parameter");
             return ErrorCodes.BadConfig;
         }
-        pdata = new CharSeparatedData { TermChars = SearchValues.Create(ed.GetValue<string>()) };
+        pdata = new CharSeparatedData { TermChars = SearchValues.Create(JsonText.GetLenientString(ed)!) };
         return 0;
     }
 

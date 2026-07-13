@@ -14,7 +14,18 @@ internal sealed class AnnotationSet
         public required string Tag { get; init; }
         /* ops are kept in file order; the C code prepends to a linked list
          * and then iterates it, so it applies ops in reverse file order —
-         * we replicate that at Annotate() time. */
+         * we replicate that at Annotate() time.
+         *
+         * Known, currently unreachable divergence: this is a single flat
+         * list across every "annotate=" line for this tag. C's combine
+         * algorithm (ln_combineAnnot in annot.c) instead nests per-statement,
+         * which only produces a different relative order than this flat
+         * list+single-reversal approach when one "annotate=" line has
+         * multiple "+field=value" ops *and* a later, separate "annotate="
+         * line re-annotates the same tag with an op that sets the same
+         * field name. No rulebase in either project's test suite does this;
+         * left as a flat list for simplicity rather than chasing parity with
+         * an unobserved edge case. */
         public List<(string Name, string Value)> Ops { get; } = new();
     }
 

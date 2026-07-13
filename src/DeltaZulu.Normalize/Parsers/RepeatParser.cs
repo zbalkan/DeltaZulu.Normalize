@@ -48,7 +48,7 @@ internal static class RepeatParser
                 if (item is JsonObject obj && obj["name"] is JsonValue nameVal)
                 {
                     ++nParsers;
-                    if (nameVal.GetValue<string>() == ".")
+                    if (JsonText.GetLenientString(nameVal) == ".")
                     {
                         ++nDots;
                     }

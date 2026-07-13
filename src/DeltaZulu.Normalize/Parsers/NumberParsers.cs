@@ -30,7 +30,7 @@ internal static class NumberParsers
             }
             else if (key == "format")
             {
-                var fmtmode = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                var fmtmode = JsonText.GetLenientString(val) ?? string.Empty;
                 if (fmtmode == "number")
                 {
                     data.FmtMode = FormatMode.AsNumber;
@@ -55,7 +55,7 @@ internal static class NumberParsers
 
     /// <summary>An unnamed field ("-") leaves a name key in the config; constructs must tolerate it.</summary>
     internal static bool IsDashName(string key, JsonNode? val)
-        => key == "name" && (val as JsonValue)?.GetValue<string>() == "-";
+        => key == "name" && JsonText.GetLenientString(val) == "-";
 
     /// <summary>A decimal digit run (always held as 64 bit internally).</summary>
     public static int ParseNumber(Npb npb, ref int offs, object? pdata, string? parserName,
@@ -105,7 +105,7 @@ internal static class NumberParsers
         {
             if (key == "format")
             {
-                var fmtmode = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                var fmtmode = JsonText.GetLenientString(val) ?? string.Empty;
                 if (fmtmode == "number")
                 {
                     data.FmtMode = FormatMode.AsNumber;
@@ -242,7 +242,7 @@ internal static class NumberParsers
             }
             else if (key == "format")
             {
-                var fmtmode = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                var fmtmode = JsonText.GetLenientString(val) ?? string.Empty;
                 if (fmtmode == "number")
                 {
                     data.FmtMode = FormatMode.AsNumber;

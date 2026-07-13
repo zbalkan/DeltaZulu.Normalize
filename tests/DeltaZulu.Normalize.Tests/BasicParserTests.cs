@@ -164,6 +164,18 @@ public class BasicParserTests
     }
 
     [TestMethod]
+    public void CharTo_CoercesNonStringExtradataInsteadOfThrowing()
+    {
+        /* json-c's json_object_get_string() coerces any scalar to text; a
+         * bare number here should behave like the string "5", not crash.
+         * The trailing literal "5" consumes the terminator char-to itself
+         * doesn't consume, so the whole message matches. */
+        var (r, j) = TestHelpers.Normalize("""rule=:%f:char-to{"extradata":5}%5""", "12345");
+        Assert.AreEqual(0, r);
+        AssertJsonEquals("""{"f": "1234"}""", j);
+    }
+
+    [TestMethod]
     public void Literal_PreservesHexEscapesAsRawByteChars()
     {
         /* \xHH escapes mirror libestr byte escapes: each escaped byte becomes

@@ -24,7 +24,7 @@ internal static class StructuredParsers
             return 0; /* no parameter */
         }
 
-        var flag = ed.GetValue<string>();
+        var flag = JsonText.GetLenientString(ed);
         if (string.Equals(flag, "skipempty", StringComparison.OrdinalIgnoreCase))
         {
             pdata = new JsonData { SkipEmpty = true };
@@ -299,7 +299,7 @@ internal static class StructuredParsers
         {
             if (config[key] is JsonValue val)
             {
-                var s = val.GetValue<string>();
+                var s = JsonText.GetLenientString(val)!;
                 if (s.Length != 1)
                 {
                     ctx.Error($"name-value-list's '{key}' field should only be 1 character");
@@ -310,7 +310,7 @@ internal static class StructuredParsers
         }
         if (config["assignator"] is JsonValue assVal)
         {
-            var s = assVal.GetValue<string>();
+            var s = JsonText.GetLenientString(assVal)!;
             if (s.Length != 1)
             {
                 ctx.Error("name-value-list's 'assignator' field should only be 1 character");
@@ -811,7 +811,7 @@ internal static class StructuredParsers
         var data = new CheckpointLeaData();
         if (config["terminator"] is JsonValue val)
         {
-            var optval = val.GetValue<string>();
+            var optval = JsonText.GetLenientString(val)!;
             if (optval.Length != 1)
             {
                 ctx.Error($"terminator must be exactly one character but is: '{optval}'");

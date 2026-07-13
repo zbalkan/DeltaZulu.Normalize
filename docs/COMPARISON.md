@@ -93,20 +93,6 @@ time.
 
 ### Audit findings (oversights, not decisions — flagged, not yet fixed)
 
-- **Non-string JSON config values crash the loader instead of being coerced.**
-  C's `json_object_get_string()` coerces any JSON scalar (number, bool) to a
-  string; this port calls `JsonValue.GetValue<string>()` in many motif
-  `Construct*` functions (`CoreParsers.cs`, `LiteralParser.cs`,
-  `StructuredParsers.cs`, `RepeatParser.cs`, most of `StringParser.cs`)
-  without an equivalent coercion helper, so e.g.
-  `rule=:%f:char-to{"extradata":5}%` throws an unhandled
-  `InvalidOperationException` out of `LoadSamplesFromString`/`LoadSamples`
-  instead of the parser loading successfully (C behavior) or failing cleanly
-  with `ErrorCodes.BadConfig` (this port's own convention for bad config
-  elsewhere, e.g. the `string-to` empty-extradata check above). The port
-  already has a lenient-int helper (`JsonText.GetLenientInt64`) but no
-  lenient-string equivalent — this looks like a gap, not a considered choice,
-  and is untested on either side.
 - Missing test coverage for several motif options that exist in the code but
   aren't exercised: `v2-iptables` (no C# tests at all), `name-value-list`
   custom `separator`/`assignator`/`ignore_whitespaces` and quoted values,
@@ -151,18 +137,15 @@ time.
   end. Practically unlikely to matter (rulebase filenames rarely contain
   spaces), and untested on either side, but it's a genuine, deliberate-in-effect
   divergence in the more defensible direction.
+- **`extendprefix=` before any `prefix=` line is treated as equivalent to
+  `prefix=`, gracefully**, where upstream's `extendPrefix` (`samp.c`) calls
+  `es_addBuf` with no NULL-guard on an as-yet-unallocated prefix — unlike
+  `getPrefix`'s explicit `*str == NULL` branch — so a "bare" `extendprefix=`
+  plausibly misbehaves in real C. Documented in code at the
+  `RulebaseLoader.ProcessLine` `"extendprefix"` case.
 
 ### Audit findings
 
-- **`extendprefix=` before any `prefix=` line: unverified crash risk in C.**
-  Upstream's `extendPrefix` calls `es_addBuf` with no NULL-guard, unlike
-  `getPrefix`'s explicit `*str == NULL` branch — every other use of
-  `es_addBuf` in `samp.c` assumes an already-allocated string, so an
-  `extendprefix=` with nothing to extend plausibly misbehaves in real C
-  (not independently confirmed by building the C library for this specific
-  case). This port treats a "bare" `extendprefix=` as equivalent to
-  `prefix=`, gracefully. Not documented anywhere before, not tested on either
-  side.
 - No 64KB rulebase line-length cap (C's `ln_sampRead` uses a fixed
   `char buf[64*1024]` and errors on overflow); the port's `StringBuilder`
   accepts arbitrarily long lines. Unlikely to matter in practice.
@@ -333,16 +316,6 @@ and running the real C library)
   and no `-p/-P/-t/-L/-H/-U/-v/-V/-s/-S/-x/-R` flags. Conversely, `-m` (normalize
   a single message inline without stdin) and `-r` accepting a directory are
   pure C# additions with no upstream flag to match.
-
-### Audit findings
-
-- ~~`ln_inherittedCtx`~~ — checked and retracted: it's declared in
-  `liblognorm.h:126` but has **no implementation anywhere in the C source
-  tree** for the v2 engine; calling it from external code would fail to
-  link. The only real, working implementation is the internal
-  `ln_v1_inherittedCtx` (`v1_liblognorm.c`), used solely by the v1 engine's
-  custom-type descent parser — already out of scope. Not a gap; nothing to
-  port.
 - A narrow, currently-unreachable-in-practice `annotate=` ordering edge case:
   if a single `annotate=` line has *multiple* `+field=value` ops **and** the
   same tag is also annotated by a separate, later `annotate=` line, C's
@@ -351,7 +324,11 @@ and running the real C library)
   port's flat-list-plus-single-reversal approach would, *if* those ops from
   different lines set the same field name. No fixture on either side
   exercises multi-op-per-line + tag-reused-across-lines, so this has never
-  actually been observed, just derived by tracing both algorithms by hand.
+  actually been observed; documented in code on `AnnotationSet.Annotation.Ops`
+  rather than chased with a test for an unobserved case.
+
+### Audit findings
+
 - No CLI-level test project/tests exist for `tools/LogNormalizer.Cli` at
   all (upstream has `lognormalizer-invld-call.sh` for argument validation).
 - `RulebaseLoader.cs`'s runaway-rule detection logic exists
@@ -368,7 +345,6 @@ The items under "Newly documented" above are now the canonical record of
 deliberate C#-vs-C behavioral differences that existed in code/tests but had
 no write-up; treat this file (and the README's "Known intentional behavior
 notes" section, which links here) as the place to add the next one. The
-"Audit findings" are not decisions — they're candidates for follow-up work
-(most importantly the non-string JSON config crash in §1, since it's a
-correctness gap rather than a considered trade-off) and the listed test
-coverage gaps.
+remaining "Audit findings" are not decisions — they're mostly test coverage
+gaps, plus the two low-severity, low-risk items noted inline (missing dead
+error codes, no rulebase line-length cap).

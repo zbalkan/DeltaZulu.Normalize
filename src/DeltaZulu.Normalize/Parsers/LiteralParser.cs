@@ -24,7 +24,7 @@ internal static class LiteralParser
             ctx.Error("literal type needs 'text' parameter");
             return ErrorCodes.BadConfig;
         }
-        pdata = new Data { Lit = text.GetValue<string>() };
+        pdata = new Data { Lit = JsonText.GetLenientString(text)! };
         return 0;
     }
 

@@ -70,7 +70,7 @@ internal static class DateTimeParsers
         {
             if (key == "format")
             {
-                var fmtmode = (val as JsonValue)?.GetValue<string>() ?? string.Empty;
+                var fmtmode = JsonText.GetLenientString(val) ?? string.Empty;
                 if (fmtmode == "timestamp-unix")
                 {
                     data.FmtMode = FormatMode.AsTimestampUnix;
