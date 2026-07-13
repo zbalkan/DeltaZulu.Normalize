@@ -102,3 +102,37 @@ On long fields (300-char runs, `LongFieldBenchmarks`) the effect is decisive:
 `char-to`/`char-sep` additionally drop from O(run · terminators) to a vectorized O(run),
 and the `json` motif no longer allocates a UTF-8 copy of the candidate slice (Structured
 allocations 2,840 → 2,798 B).
+
+## Phase 5 — flat result type + zero-copy RawSpan slices
+
+The walker commits into a flat `FieldCollector` instead of building a
+`JsonObject` during the walk; RawSpan values are stored as
+`ReadOnlyMemory<char>` slices of the input. `Normalize(out JsonObject)`
+materializes at the end; the new `Normalize(out NormalizeResult)` /
+`NormalizeToString` never build a `JsonObject` at all and serialize slices
+directly. Measured on the sandbox host (numbers differ from the tables above
+in absolute terms; compare within this table only — "before" is the same host
+on the previous commit):
+
+| Method                    | Before     | After      | Allocated before | after   |
+|-------------------------- |-----------:|-----------:|-----------------:|--------:|
+| Structured (JsonObject)   |   2.63 µs  |   2.57 µs  |          2.73 KB | 2.56 KB |
+| StructuredFlatOnly (new)  |          — |   2.24 µs  |                — | 2.33 KB |
+| StructuredToJsonText (new)|          — |   2.98 µs  |                — | 3.02 KB |
+| LongCharTo (JsonObject)   |   546 ns   |   769 ns   |          1,096 B | 1,280 B |
+| LongCharToFlat (new)      |          — |   286 ns   |                — |   280 B |
+| LongWordFlat (new)        |          — |   308 ns   |                — |   280 B |
+
+Observations:
+
+- The flat path removes the per-field Substring entirely: on 300-char fields
+  it is ~1.9× faster than the previous engine and allocates 280 B vs 1,096 B
+  (the remaining bytes are the collector itself; the field values are slices).
+- The Structured corpus is dominated by Eager motifs (json/cef/name-value/
+  repeat) that build JsonNode trees regardless, so the flat-only gain there is
+  ~15 % time / ~15 % bytes.
+- The classic `out JsonObject` overload keeps its cost on realistic events
+  (Structured slightly improves) but pays a fixed ~200 ns / ~200 B collector
+  overhead on tiny 2-field messages (LongCharTo above), since it now runs
+  flat-walk + materialize. Callers on that path at volume should move to
+  `NormalizeResult`.

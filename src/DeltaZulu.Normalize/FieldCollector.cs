@@ -21,7 +21,7 @@ internal sealed class FieldCollector
         public FieldValue Value;
     }
 
-    private Entry[] _entries = new Entry[8];
+    private Entry[] _entries = new Entry[4];
     private int _count;
 
     public int Count => _count;
