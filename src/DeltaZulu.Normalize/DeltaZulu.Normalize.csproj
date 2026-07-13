@@ -1,10 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>DeltaZulu.Normalize</RootNamespace>
     <AssemblyName>DeltaZulu.Normalize</AssemblyName>
     <Description>C# port of the DeltaZulu.Normalize v2 PDAG log normalization engine: parses unstructured log text into structured JSON using a rulebase compiled into a parse DAG.</Description>
