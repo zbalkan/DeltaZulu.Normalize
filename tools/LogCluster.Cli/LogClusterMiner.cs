@@ -92,7 +92,7 @@ internal static partial class LiblognormMotifs
             yield return Float;
         }
 
-        if (DateTimeOffset.TryParse(sample, CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+        if (DateOnly.TryParseExact(sample, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
         {
             yield return DateIso;
         }
@@ -330,9 +330,18 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
             return;
         }
 
-        var parser = gap.SuggestedParser ?? (gap.MaxWords == 1 ? LiblognormMotifs.Word : LiblognormMotifs.Rest);
+        // liblognorm field selectors are mandatory matches with no optional syntax; when MinWords == 0 the
+        // gap may legitimately be absent, so a strict/single-word parser would reject those records. `rest`
+        // is the closest best-effort approximation liblognorm offers for a possibly-empty span.
+        var parser = gap.MinWords == 0
+            ? LiblognormMotifs.Rest
+            : gap.SuggestedParser ?? (gap.MaxWords == 1 ? LiblognormMotifs.Word : LiblognormMotifs.Rest);
         parts.Add($"%field{field++}:{parser}%");
     }
+
+    private static string EscapeLiteral(string token) => token.Contains('%') || token.Contains(':')
+        ? token.Replace("%", "%%", StringComparison.Ordinal).Replace(":", "\\x3a", StringComparison.Ordinal)
+        : token;
 
     private static string RenderLogCluster(int[] anchors, GapOutput[] gaps, TokenDictionary dictionary)
     {
@@ -353,7 +362,7 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
         for (var i = 0; i < anchors.Length; i++)
         {
             AddRuleGap(parts, gaps[i], ref field);
-            parts.Add(dictionary[anchors[i]]);
+            parts.Add(EscapeLiteral(dictionary[anchors[i]]));
         }
         AddRuleGap(parts, gaps[^1], ref field);
         return string.Join(' ', parts);
@@ -363,7 +372,13 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
 internal sealed class TokenDictionary
 {
     private readonly Dictionary<string, int> _ids = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int>.AlternateLookup<ReadOnlySpan<char>> _lookup;
     private readonly List<string> _tokens = [];
+
+    public TokenDictionary()
+    {
+        _lookup = _ids.GetAlternateLookup<ReadOnlySpan<char>>();
+    }
 
     public int Count => _tokens.Count;
 
@@ -371,12 +386,13 @@ internal sealed class TokenDictionary
 
     public int GetOrAdd(string message, int start, int length)
     {
-        var token = message.Substring(start, length);
-        if (_ids.TryGetValue(token, out var id))
+        var span = message.AsSpan(start, length);
+        if (_lookup.TryGetValue(span, out var id))
         {
             return id;
         }
 
+        var token = span.ToString();
         id = _tokens.Count;
         _ids.Add(token, id);
         _tokens.Add(token);
@@ -416,6 +432,9 @@ internal sealed record TokenizedRecord(long SequenceNumber, int[] Tokens)
         return tokenized.ToArray();
     }
 
+    // Word boundaries collapse any run of whitespace (tabs, repeated spaces, ...) into a single split point,
+    // and the original separator is discarded. Rendered rules/patterns rejoin tokens with a single ASCII
+    // space, so they are a best-effort approximation for records whose delimiters are not a single space.
     private static int[] Tokenize(string message, TokenDictionary dictionary)
     {
         var tokens = new List<int>();
