@@ -52,7 +52,14 @@ namespace LogCluster.Cli
                 }
                 if (options.Json)
                 {
-                    Console.WriteLine(JsonSerializer.Serialize(result.Candidates, jsonOpts));
+                    if (options.ShowOutliers)
+                    {
+                        Console.WriteLine(JsonSerializer.Serialize(new { result.Candidates, result.OutlierCount, result.OutlierSamples }, jsonOpts));
+                    }
+                    else
+                    {
+                        Console.WriteLine(JsonSerializer.Serialize(result.Candidates, jsonOpts));
+                    }
                 }
                 else
                 {
@@ -183,6 +190,15 @@ namespace LogCluster.Cli
                         }
                     }
                     Console.WriteLine();
+                }
+
+                if (options.ShowOutliers)
+                {
+                    Console.WriteLine($"Outliers: {result.OutlierCount} lines matched no surviving candidate");
+                    foreach (var sample in result.OutlierSamples)
+                    {
+                        Console.WriteLine($"  {sample}");
+                    }
                 }
             }
         }

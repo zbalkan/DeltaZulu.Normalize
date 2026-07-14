@@ -20,6 +20,8 @@ internal sealed record LogClusterOptions
     // group's combined support (distinctValues <= 0.5 * combinedSupport) -- e.g. a handful of
     // recurring source IPs, not a firehose of one-off values.
     public double WordWeightThreshold { get; init; } = 0.5;
+    public bool ShowOutliers { get; init; }
+    public int MaxOutlierSamples { get; init; } = 20;
     public bool Json { get; init; }
     public bool Verbose { get; init; }
     public bool SkipEmpty { get; init; } = true;
@@ -93,6 +95,16 @@ internal sealed record LogClusterOptions
                 case "--json": options = options with { Json = true }; break;
                 case "-v" or "--verbose": options = options with { Verbose = true }; break;
                 case "--keep-empty": options = options with { SkipEmpty = false }; break;
+                case "--outliers": options = options with { ShowOutliers = true }; break;
+
+                case "--max-outlier-samples":
+                    if (++i >= args.Length || !int.TryParse(args[i], NumberStyles.None, CultureInfo.InvariantCulture, out var maxOutlierSamples) || maxOutlierSamples < 1)
+                    {
+                        return options with { Error = "maximum outlier samples must be a positive integer" };
+                    }
+
+                    options = options with { MaxOutlierSamples = maxOutlierSamples };
+                    break;
                 case "--materialize": options = options with { ForceMaterialize = true }; break;
                 case "--stream": options = options with { ForceMaterialize = false }; break;
 
@@ -171,6 +183,8 @@ internal sealed record LogClusterOptions
               --weight-specificity <n> score weight for pattern specificity (default: 0.15)
               --wweight-threshold <n>  merge single-anchor variants when distinct values <=
                                        threshold * combined support (default: 0.5)
+              --outliers               report lines that matched no surviving candidate
+              --max-outlier-samples <n> bounded outlier lines to print (default: 20)
           -m, --message <text>      mine one message supplied on the command line
               --json                emit JSON instead of text
           -v, --verbose             print gap samples and parser confidence

@@ -162,7 +162,7 @@ internal sealed class GapStatistics(int maxSamples)
 
 internal sealed class LogClusterInputTooLargeException(string message) : Exception(message);
 
-internal sealed record MiningResult(int RecordCount, IReadOnlyList<CandidateOutput> Candidates, string Strategy);
+internal sealed record MiningResult(int RecordCount, IReadOnlyList<CandidateOutput> Candidates, string Strategy, int OutlierCount, IReadOnlyList<string> OutlierSamples); 
 internal sealed record CandidateOutput(int Support, double Specificity, string LogClusterPattern, string LiblognormRule, bool IsExecutableRule, IReadOnlyList<string> RuleWarnings, IReadOnlyList<GapOutput> Gaps, CandidateScore Score);
 internal sealed record GapOutput(int MinWords, int MaxWords, int Observations, IReadOnlyList<string> Samples, string? SuggestedParser, double ParserConfidence);
 internal sealed record CandidateScore(double Total, double Support, double AnchorQuality, double GapConsistency, double PatternSpecificity);
@@ -202,7 +202,8 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
             candidate.InitializeGaps(options.MaxSamplesPerGap);
         }
 
-        CollectEvidence(tokenizedPass(), frequentWords, candidates, dictionary, routes);
+        var outliers = options.ShowOutliers ? new OutlierCollector(options.MaxOutlierSamples) : null;
+        CollectEvidence(tokenizedPass(), frequentWords, candidates, dictionary, routes, outliers);
 
         var outputs = survivors.Select(c => c.ToOutput(recordCount, dictionary, options))
             .OrderByDescending(c => c.Score.Total)
@@ -211,7 +212,7 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
             .ThenBy(c => c.LogClusterPattern, StringComparer.Ordinal)
             .Take(options.MaxCandidates)
             .ToArray();
-        return new MiningResult(recordCount, outputs, streaming ? "stream" : "materialize");
+        return new MiningResult(recordCount, outputs, streaming ? "stream" : "materialize", outliers?.Count ?? 0, outliers?.Samples ?? []);
     }
 
     // Picks the strategy once, before mining starts. Below the safety margin, holding every
@@ -242,19 +243,21 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
         return estimatedMemoryUsage > headroom * safetyMargin;
     }
 
-    private static void CollectEvidence(IEnumerable<TokenizedRecord> records, bool[] frequentWords, Dictionary<CandidateKey, PatternCandidate> candidates, TokenDictionary dictionary, Dictionary<CandidateKey, EvidenceRoute> routes)
+    private static void CollectEvidence(IEnumerable<TokenizedRecord> records, bool[] frequentWords, Dictionary<CandidateKey, PatternCandidate> candidates, TokenDictionary dictionary, Dictionary<CandidateKey, EvidenceRoute> routes, OutlierCollector? outliers)
     {
         foreach (var record in records)
         {
             var anchors = AnchorBuffer.From(record.Tokens, frequentWords);
             if (anchors.Length == 0)
             {
+                outliers?.Observe(record.Reconstruct(dictionary));
                 continue;
             }
 
             var key = new CandidateKey(anchors);
             if (!candidates.TryGetValue(key, out var candidate) || !candidate.KeepEvidence)
             {
+                outliers?.Observe(record.Reconstruct(dictionary));
                 continue;
             }
 
@@ -472,6 +475,12 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
         // this record is expected to produce, so the trailing-edge check below doesn't misfire
         // once an internal position has already been absorbed.
         var totalAnchorsInRecord = anchors.Length + extraLeadingAnchors + extraTrailingAnchors + (absorbedPositions?.Count ?? 0); var gapWords = new List<int>();
+        // The separator right after whichever real anchor was last flushed -- i.e. the boundary
+        // that opens the trailing gap. Defaults to the record's true trailing separator, which
+        // is exactly the same value when the trailing gap turns out to be empty (nothing follows
+        // the last anchor either way); only differs when the trailing gap has actual words,
+        // where "after the last anchor" and "after the whole record" are different positions.
+        var trailingSeparator = separators[^1];
         for (var i = 0; i < tokens.Length; i++)
         {
             var token = tokens[i];
@@ -490,6 +499,7 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
                 _gaps[gapIndex].Observe(gapWords, dictionary);
                 _separators[gapIndex].Observe(separators[i]);
                 gapIndex++;
+                trailingSeparator = separators[i + 1];
                 gapWords.Clear();
             }
             else
@@ -498,7 +508,7 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
             }
         }
         _gaps[gapIndex].Observe(gapWords, dictionary);
-        _separators[gapIndex].Observe(separators[^1]);
+        _separators[gapIndex].Observe(trailingSeparator);
     }
 
     public void ObserveSupport(long sequenceNumber)
@@ -635,6 +645,25 @@ internal sealed class SeparatorStats
     public void Observe(string separator) => _votes[separator] = _votes.GetValueOrDefault(separator) + 1;
 }
 
+// Tracks lines that matched no surviving candidate (--outliers), analogous to LogClusterC's
+// outliers.c. Count is exact; Samples is bounded so a pathological input can't blow up memory
+// just for a diagnostic report.
+internal sealed class OutlierCollector(int maxSamples)
+{
+    private readonly List<string> _samples = new(maxSamples);
+    public int Count { get; private set; }
+    public IReadOnlyList<string> Samples => _samples;
+
+    public void Observe(string line)
+    {
+        Count++;
+        if (_samples.Count < maxSamples)
+        {
+            _samples.Add(line);
+        }
+    }
+}
+
 internal sealed class TokenDictionary
 {
     private readonly Dictionary<string, int> _ids = new(StringComparer.Ordinal);
@@ -693,6 +722,20 @@ internal sealed class TokenDictionary
 // boundary instead of always rejoining with a single ASCII space.
 internal sealed record TokenizedRecord(long SequenceNumber, int[] Tokens, string[] Separators)
 {
+    // Losslessly rebuilds the original message text for --outliers reporting: Tokens and
+    // Separators together capture exactly what Tokenize() consumed.
+    public string Reconstruct(TokenDictionary dictionary)
+    {
+        var builder = new StringBuilder();
+        for (var i = 0; i < Tokens.Length; i++)
+        {
+            builder.Append(Separators[i]);
+            builder.Append(dictionary[Tokens[i]]);
+        }
+        builder.Append(Separators[^1]);
+        return builder.ToString();
+    }
+
     // Shared by both mining strategies: "materialize" calls ToArray() on this once and caches
     // the result; "stream" leaves it lazy and re-enumerates recordSource() through it once per
     // pass, so records are tokenized on the fly and never all held in memory at once.
