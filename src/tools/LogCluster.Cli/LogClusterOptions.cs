@@ -14,6 +14,12 @@ internal sealed record LogClusterOptions
     public double WeightAnchor { get; init; } = 0.30;
     public double WeightGapConsistency { get; init; } = 0.20;
     public double WeightSpecificity { get; init; } = 0.15;
+
+    // Default of 0.5 merges a group of candidates differing at exactly one anchor position when
+    // that position's distinct values recur at least twice each on average relative to the
+    // group's combined support (distinctValues <= 0.5 * combinedSupport) -- e.g. a handful of
+    // recurring source IPs, not a firehose of one-off values.
+    public double WordWeightThreshold { get; init; } = 0.5;
     public bool Json { get; init; }
     public bool Verbose { get; init; }
     public bool SkipEmpty { get; init; } = true;
@@ -125,7 +131,14 @@ internal sealed record LogClusterOptions
 
                     options = options with { WeightSpecificity = weightSpecificity };
                     break;
+                case "--wweight-threshold":
+                    if (++i >= args.Length || !double.TryParse(args[i], NumberStyles.Float, CultureInfo.InvariantCulture, out var wweightThreshold) || wweightThreshold < 0)
+                    {
+                        return options with { Error = "word-weight threshold must be a non-negative number" };
+                    }
 
+                    options = options with { WordWeightThreshold = wweightThreshold };
+                    break;
                 default:
                     if (args[i].StartsWith('-'))
                     {
@@ -156,6 +169,8 @@ internal sealed record LogClusterOptions
               --weight-anchor <n>      score weight for anchor quality (default: 0.30)
               --weight-gaps <n>        score weight for gap consistency (default: 0.20)
               --weight-specificity <n> score weight for pattern specificity (default: 0.15)
+              --wweight-threshold <n>  merge single-anchor variants when distinct values <=
+                                       threshold * combined support (default: 0.5)
           -m, --message <text>      mine one message supplied on the command line
               --json                emit JSON instead of text
           -v, --verbose             print gap samples and parser confidence

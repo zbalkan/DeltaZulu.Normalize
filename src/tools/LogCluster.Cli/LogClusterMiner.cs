@@ -193,8 +193,9 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
 
         var (frequentWords, recordCount) = DiscoverFrequentWords(tokenizedPass());
         var candidates = GenerateCandidates(tokenizedPass(), frequentWords);
-        var routes = new Dictionary<CandidateKey, (int Leading, int Trailing)>();
+        var routes = new Dictionary<CandidateKey, EvidenceRoute>();
         MergeShiftedCandidates(candidates, routes);
+        MergeLowDiversityVariants(candidates, routes, options.WordWeightThreshold);
         var survivors = candidates.Values.Distinct().Where(c => c.Support >= options.MinSupport).ToArray();
         foreach (var candidate in survivors)
         {
@@ -241,7 +242,7 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
         return estimatedMemoryUsage > headroom * safetyMargin;
     }
 
-    private static void CollectEvidence(IEnumerable<TokenizedRecord> records, bool[] frequentWords, Dictionary<CandidateKey, PatternCandidate> candidates, TokenDictionary dictionary, Dictionary<CandidateKey, (int Leading, int Trailing)> routes)
+    private static void CollectEvidence(IEnumerable<TokenizedRecord> records, bool[] frequentWords, Dictionary<CandidateKey, PatternCandidate> candidates, TokenDictionary dictionary, Dictionary<CandidateKey, EvidenceRoute> routes)
     {
         foreach (var record in records)
         {
@@ -257,8 +258,8 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
                 continue;
             }
 
-            var route = routes.TryGetValue(key, out var r) ? r : (Leading: 0, Trailing: 0);
-            candidate.ObserveGaps(record.Tokens, record.Separators, frequentWords, dictionary, route.Leading, route.Trailing);
+            var route = routes.TryGetValue(key, out var r) ? r : default;
+            candidate.ObserveGaps(record.Tokens, record.Separators, frequentWords, dictionary, route.Leading, route.Trailing, route.AbsorbedPositions);
         }
     }
 
@@ -284,6 +285,75 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
         return candidates;
     }
 
+    // Word-weight-style join (mirrors LogClusterC's --wweight): candidates that differ in
+    // exactly one anchor position, whose distinct values at that position recur often enough
+    // relative to their combined support (per LogClusterOptions.WordWeightThreshold), are
+    // reported as one candidate with that position demoted to a gap instead of fragmenting into
+    // one candidate per value (e.g. per-source-IP variants of the same alert).
+    //
+    // Scoped to candidates that haven't already absorbed a MergeShiftedCandidates edge merge:
+    // composing an internal-position removal with a prior edge absorption would require
+    // reindexing the edge route, which isn't worth the correctness risk for this heuristic.
+    private static void MergeLowDiversityVariants(Dictionary<CandidateKey, PatternCandidate> candidates, Dictionary<CandidateKey, EvidenceRoute> routes, double threshold)
+    {
+        var alreadyEdgeMerged = new HashSet<PatternCandidate>(routes.Keys.Select(k => candidates[k]));
+
+        var groups = new Dictionary<(int Position, CandidateKey Template), List<PatternCandidate>>();
+        foreach (var candidate in candidates.Values.Distinct())
+        {
+            if (candidate.AnchorCount == 0 || alreadyEdgeMerged.Contains(candidate) || candidates[candidate.Key] != candidate)
+            {
+                continue;
+            }
+
+            for (var position = 0; position < candidate.AnchorCount; position++)
+            {
+                var groupKey = (position, candidate.TemplateKey(position));
+                if (!groups.TryGetValue(groupKey, out var members))
+                {
+                    groups[groupKey] = members = [];
+                }
+                members.Add(candidate);
+            }
+        }
+
+        foreach (var group in groups.OrderBy(g => g.Key.Position).ThenBy(g => g.Key.Template.ToString(), StringComparer.Ordinal))
+        {
+            var position = group.Key.Position;
+            var live = group.Value.Where(c => candidates[c.Key] == c).Distinct().ToArray();
+            if (live.Length < 2)
+            {
+                continue;
+            }
+
+            var combinedSupport = live.Sum(c => c.Support);
+            if (live.Length > threshold * combinedSupport)
+            {
+                continue;
+            }
+
+            var mergedAnchors = live[0].AnchorsWithout(position);
+            var mergedKey = new CandidateKey(mergedAnchors);
+            if (!candidates.TryGetValue(mergedKey, out var merged))
+            {
+                merged = new PatternCandidate(mergedKey, mergedAnchors);
+            }
+
+            foreach (var member in live)
+            {
+                if (member == merged)
+                {
+                    continue;
+                }
+
+                merged.AbsorbSupport(member);
+                candidates[member.Key] = merged;
+                routes[member.Key] = new EvidenceRoute(Leading: 0, Trailing: 0, AbsorbedPositions: new HashSet<int> { position });
+            }
+            candidates[mergedKey] = merged;
+        }
+    }
+
     // Aggregation-style merge (mirrors LogClusterC's --aggrsup): a candidate whose anchor
     // sequence is exactly one token longer than another candidate's, with the extra token at
     // either edge, is a positionally-shifted variant of the same underlying pattern rather than
@@ -291,7 +361,7 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
     // adjacent boundary gap. Only single-token, single-edge differences are merged: an
     // already-merged key that some longer candidate reduces to by more than one token is left
     // as a separate candidate rather than chaining merges across a larger gap.
-    private static void MergeShiftedCandidates(Dictionary<CandidateKey, PatternCandidate> candidates, Dictionary<CandidateKey, (int Leading, int Trailing)> routes)
+    private static void MergeShiftedCandidates(Dictionary<CandidateKey, PatternCandidate> candidates, Dictionary<CandidateKey, EvidenceRoute> routes)
     {
         var originals = candidates.Values.Distinct().OrderBy(c => c.AnchorCount).ToArray();
         foreach (var extended in originals)
@@ -305,13 +375,13 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
             {
                 leadingBase.AbsorbSupport(extended);
                 candidates[extended.Key] = leadingBase;
-                routes[extended.Key] = (Leading: 1, Trailing: 0);
+                routes[extended.Key] = new EvidenceRoute(Leading: 1, Trailing: 0, AbsorbedPositions: null);
             }
             else if (candidates.TryGetValue(extended.ReducedKey(dropFirst: false), out var trailingBase) && trailingBase != extended && trailingBase.AnchorCount == extended.AnchorCount - 1)
             {
                 trailingBase.AbsorbSupport(extended);
                 candidates[extended.Key] = trailingBase;
-                routes[extended.Key] = (Leading: 0, Trailing: 1);
+                routes[extended.Key] = new EvidenceRoute(Leading: 0, Trailing: 1, AbsorbedPositions: null);
             }
         }
     }
@@ -368,6 +438,17 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
 
     public void AbsorbSupport(PatternCandidate other) => Support += other.Support;
 
+    // The anchor sequence with one internal position wildcarded (see
+    // LogClusterMiner.MergeLowDiversityVariants), used to group candidates that differ only at
+    // that one position.
+    public int[] AnchorsWithout(int position)
+    {
+        var result = new int[anchors.Length - 1];
+        Array.Copy(anchors, 0, result, 0, position);
+        Array.Copy(anchors, position + 1, result, position, anchors.Length - position - 1);
+        return result;
+    }
+
     public void InitializeGaps(int maxSamples)
     {
         var gapCount = anchors.Length + 1;
@@ -380,19 +461,27 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
 
     // separators is aligned with tokens: separators[i] is the whitespace immediately before
     // tokens[i], and separators[^1] is the trailing whitespace after the last token.
-    public void ObserveGaps(ReadOnlySpan<int> tokens, ReadOnlySpan<string> separators, ReadOnlySpan<bool> frequentWords, TokenDictionary dictionary, int extraLeadingAnchors = 0, int extraTrailingAnchors = 0)
+    // absorbedPositions (0-indexed in encounter order, before extraLeadingAnchors/
+    // extraTrailingAnchors are applied) marks additional individual anchor occurrences that
+    // should also fold into the adjacent gap, from MergeLowDiversityVariants.
+    public void ObserveGaps(ReadOnlySpan<int> tokens, ReadOnlySpan<string> separators, ReadOnlySpan<bool> frequentWords, TokenDictionary dictionary, int extraLeadingAnchors = 0, int extraTrailingAnchors = 0, HashSet<int>? absorbedPositions = null)
     {
         var gapIndex = 0;
         var anchorsSeen = 0;
-        var totalAnchorsInRecord = anchors.Length + extraLeadingAnchors + extraTrailingAnchors;
-        var gapWords = new List<int>();
+        // Every absorbed occurrence (edge or internal) still counts toward how many anchor hits
+        // this record is expected to produce, so the trailing-edge check below doesn't misfire
+        // once an internal position has already been absorbed.
+        var totalAnchorsInRecord = anchors.Length + extraLeadingAnchors + extraTrailingAnchors + (absorbedPositions?.Count ?? 0); var gapWords = new List<int>();
         for (var i = 0; i < tokens.Length; i++)
         {
             var token = tokens[i];
             if (frequentWords[token])
             {
+                var position = anchorsSeen;
                 anchorsSeen++;
-                if (anchorsSeen <= extraLeadingAnchors || anchorsSeen > totalAnchorsInRecord - extraTrailingAnchors)
+                var isEdgeAbsorbed = position < extraLeadingAnchors || anchorsSeen > totalAnchorsInRecord - extraTrailingAnchors;
+                var isPositionAbsorbed = absorbedPositions is not null && absorbedPositions.Contains(position);
+                if (isEdgeAbsorbed || isPositionAbsorbed)
                 {
                     gapWords.Add(token);
                     continue;
@@ -428,6 +517,8 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
     // candidate's own anchor sequence; fold them into the adjacent boundary gap's word range
     // instead of treating them as anchors.
     public CandidateKey ReducedKey(bool dropFirst) => new(dropFirst ? anchors.AsSpan(1) : anchors.AsSpan(0, anchors.Length - 1));
+
+    public CandidateKey TemplateKey(int position) => new(AnchorsWithout(position));
 
     public CandidateOutput ToOutput(int recordCount, TokenDictionary dictionary, LogClusterOptions options)
     {
@@ -653,6 +744,14 @@ internal sealed record TokenizedRecord(long SequenceNumber, int[] Tokens, string
         return (tokens.ToArray(), separators.ToArray());
     }
 }
+
+// Which anchor occurrences (0-indexed in encounter order) a record matching this route's key
+// should fold into the adjacent gap instead of treating as a real split point for whichever
+// PatternCandidate it's been merged into. Leading/Trailing come from MergeShiftedCandidates
+// (edge extensions); AbsorbedPositions comes from MergeLowDiversityVariants (one internal
+// position wildcarded). The two are never combined on the same route (see
+// MergeLowDiversityVariants' scoping comment).
+internal readonly record struct EvidenceRoute(int Leading, int Trailing, HashSet<int>? AbsorbedPositions);
 
 internal readonly record struct CandidateKey : IEquatable<CandidateKey>
 {

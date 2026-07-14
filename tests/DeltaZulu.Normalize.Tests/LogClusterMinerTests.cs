@@ -42,6 +42,23 @@ public class LogClusterMinerTests
     }
 
     [TestMethod]
+    public void Mine_DoesNotMergeHighDiversitySingleTokenVariants()
+    {
+        var options = LogClusterOptions.Parse(["--min-support", "2", "--wweight-threshold", "0.01"]);
+        var records = new[] {
+            new LogRecord(1, "alert from ip1 triggered", "test"),
+            new LogRecord(2, "alert from ip1 triggered", "test"),
+            new LogRecord(3, "alert from ip2 triggered", "test"),
+            new LogRecord(4, "alert from ip2 triggered", "test"),
+        };
+
+        var result = new LogClusterMiner(options).Mine(records);
+        var matches = result.Candidates.Where(c => c.LogClusterPattern.StartsWith("alert from", StringComparison.Ordinal)).ToArray();
+
+        Assert.HasCount(2, matches);
+    }
+
+    [TestMethod]
     public void Mine_MaterializeAndStreamStrategiesProduceIdenticalOutput()
     {
         var records = new[] {
@@ -59,6 +76,32 @@ public class LogClusterMinerTests
             materialized.Candidates.Select(c => c.LogClusterPattern).ToArray(), streamed.Candidates.Select(c => c.LogClusterPattern).ToArray());
         Assert.AreSequenceEqual(
             materialized.Candidates.Select(c => c.Support).ToArray(), streamed.Candidates.Select(c => c.Support).ToArray());
+    }
+
+    [TestMethod]
+    public void Mine_MergesLowDiversitySingleTokenVariantsIntoOneCandidate()
+    {
+        var options = LogClusterOptions.Parse(["--min-support", "2"]);
+        var records = new[] {
+            new LogRecord(1, "alert from ip1 triggered", "test"),
+            new LogRecord(2, "alert from ip1 triggered", "test"),
+            new LogRecord(3, "alert from ip2 triggered", "test"),
+            new LogRecord(4, "alert from ip2 triggered", "test"),
+            new LogRecord(5, "alert from ip3 triggered", "test"),
+            new LogRecord(6, "alert from ip3 triggered", "test"),
+        };
+
+        var result = new LogClusterMiner(options).Mine(records);
+        var matches = result.Candidates.Where(c => c.LogClusterPattern.StartsWith("alert from", StringComparison.Ordinal)).ToArray();
+
+        Assert.HasCount(1, matches);
+        var merged = matches[0];
+        Assert.AreEqual(6, merged.Support);
+        Assert.AreEqual("alert from *{1,1} triggered", merged.LogClusterPattern);
+        var wildcardedGap = merged.Gaps[2];
+        Assert.AreEqual(1, wildcardedGap.MinWords);
+        Assert.AreEqual(1, wildcardedGap.MaxWords);
+        CollectionAssert.AreEquivalent(new[] { "ip1", "ip2", "ip3" }, wildcardedGap.Samples.ToArray());
     }
 
     [TestMethod]
