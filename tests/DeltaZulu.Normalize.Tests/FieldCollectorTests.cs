@@ -86,7 +86,7 @@ public class FieldCollectorTests
         c.Set("z", FieldValue.Node(null));
 
         var obj = c.ToJsonObject();
-        CollectionAssert.AreEqual(new[] { "s", "n", "o", "z" }, obj.Select(kv => kv.Key).ToArray());
+        Assert.AreSequenceEqual(new[] { "s", "n", "o", "z" }, obj.Select(kv => kv.Key).ToArray());
         Assert.AreEqual("cde", obj["s"]!.GetValue<string>());
         Assert.AreEqual("v", obj["n"]!["k"]!.GetValue<string>());
         Assert.AreEqual("yz", obj["o"]!["inner"]!.GetValue<string>());
@@ -130,7 +130,7 @@ public class FieldCollectorTests
     [TestMethod]
     public void FieldValue_FullStringSpanMaterializesOriginalInstance()
     {
-        var source = "the whole message";
+        const string source = "the whole message";
         var v = FieldValue.Span(source, 0, source.Length);
         var node = v.ToJsonNode();
         Assert.IsTrue(ReferenceEquals(source, node!.GetValue<string>()));

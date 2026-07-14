@@ -24,7 +24,7 @@ public class BasicParserTests
             """, j2);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("here is a number %num:float% in floating pt form", "here is a number 15.9 in floating pt form", "15.9")]
     [DataRow("here is a negative number %num:float% for you", "here is a negative number -4.2 for you", "-4.2")]
     [DataRow("here is another real number %num:float%.", "here is another real number 2.71.", "2.71")]
@@ -50,7 +50,7 @@ public class BasicParserTests
             """, j2);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("ABCD:EF01:2345:6789:ABCD:EF01:2345:6789")]
     [DataRow("ABCD:EF01:2345:6789:abcd:EF01:2345:6789")]
     [DataRow("2001:DB8:0:0:8:800:200C:417A")]
@@ -69,7 +69,7 @@ public class BasicParserTests
         AssertJsonEquals($$"""{ "f": "{{addr}}" }""", j);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("2001:DB8::8::800:200C:417A")] // two "::" sequences
     [DataRow("ABCD:EF01:2345:6789:ABCD:EF01:2345::6789")] // "::" with too many blocks
     [DataRow(":0:0:0:0:0:0:1")] // missing first digit
@@ -91,7 +91,7 @@ public class BasicParserTests
             """, j);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("f0:f6:1c:5f:cc:a2")]
     [DataRow("f0-f6-1c-5f-cc-a2")]
     public void Mac48_AcceptsColonAndHyphenDelimited(string mac)
@@ -101,7 +101,7 @@ public class BasicParserTests
         AssertJsonEquals($$"""{"field": "{{mac}}"}""", j);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("f0-f6:1c:5f:cc-a2")] // mixed delimiters
     [DataRow("f0:f6:1c:xf:cc:a2")] // non-hex digit
     public void Mac48_RejectsMalformed(string mac)
@@ -110,7 +110,7 @@ public class BasicParserTests
         Assert.AreNotEqual(0, r);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("duration 0:00:42 bytes", "0:00:42")]
     [DataRow("duration 0:00:42", "0:00:42")]
     [DataRow("duration 9:00:42 bytes", "9:00:42")]
@@ -158,7 +158,7 @@ public class BasicParserTests
     {
         var errors = new List<string>();
         var ctx = new LogNormContext { ErrorCallback = errors.Add };
-        var r = ctx.LoadSamplesFromString("""rule=:%f:string-to:%""");
+        var r = ctx.LoadSamplesFromString("rule=:%f:string-to:%");
         Assert.AreNotEqual(0, r);
     }
 
@@ -196,6 +196,6 @@ public class BasicParserTests
         var r = ctx.LoadSamplesFromString("""rule=:%f:string{"option.dashIsEmpty":"true"}%""");
 
         Assert.AreEqual(ErrorCodes.BadConfig, r);
-        Assert.IsTrue(errors.Any(e => e.Contains("option.dashIsEmpty", StringComparison.Ordinal)));
+        Assert.Contains(e => e.Contains("option.dashIsEmpty", StringComparison.Ordinal), errors);
     }
 }

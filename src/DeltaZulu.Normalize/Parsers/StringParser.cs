@@ -41,10 +41,7 @@ internal static class StringParser
         /// all-true byte table.</summary>
         public bool Restricted;
 
-        public void FillAllPermChars()
-        {
-            _permChars[0] = _permChars[1] = _permChars[2] = _permChars[3] = ulong.MaxValue;
-        }
+        public void FillAllPermChars() => _permChars[0] = _permChars[1] = _permChars[2] = _permChars[3] = ulong.MaxValue;
 
         public void ClearPermChars() => Array.Clear(_permChars);
 

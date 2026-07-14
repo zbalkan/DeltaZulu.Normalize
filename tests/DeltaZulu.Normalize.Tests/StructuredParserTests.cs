@@ -118,7 +118,7 @@ public class StructuredParserTests
             TestHelpers.Normalize(rb, "name1= name2=value2 name3=value3 ").Json);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("name")]
     [DataRow("noname1 name2=value2 name3=value3 ")]
     public void NameValueList_RejectsMalformedInput(string message)

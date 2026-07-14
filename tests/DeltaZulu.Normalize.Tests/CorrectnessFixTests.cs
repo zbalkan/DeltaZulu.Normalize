@@ -41,7 +41,7 @@ public class CorrectnessFixTests
         AssertJsonEquals("""{ "f": "Łód" }""", j);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("val 0.5 x", "0.5")]     /* plain: raw text kept */
     [DataRow("val -0.25 x", "-0.25")] /* negative */
     [DataRow("val 123 x", "123")]     /* integral */
@@ -69,13 +69,11 @@ public class CorrectnessFixTests
     }
 
     [TestMethod]
-    public void Dispatch_SwitchCoversWholeParserTable()
-    {
+    public void Dispatch_SwitchCoversWholeParserTable() =>
         /* the hot-path dispatch switch must have one case per table entry;
-         * this catches a parser added to the table but not to the switch */
-        Assert.AreEqual(ParserTable.Parsers.Length, ParserTable.DispatchCaseCount,
+* this catches a parser added to the table but not to the switch */
+        Assert.HasCount(ParserTable.DispatchCaseCount, ParserTable.Parsers,
             "ParserTable.Dispatch is out of sync with ParserTable.Parsers");
-    }
 
     [TestMethod]
     public void Stats_CollectedOnlyWhenOptionSet()
@@ -88,11 +86,11 @@ public class CorrectnessFixTests
         var statsCtx = new LogNormContext { Options = LogNormOptions.CollectStats };
         Assert.AreEqual(0, statsCtx.LoadSamplesFromString("rule=:a %f:word%"));
         Assert.AreEqual(0, statsCtx.Normalize("a hello", out JsonObject _));
-        Assert.IsTrue(statsCtx.GetStats().NodesVisited > 0, "stats must accumulate when enabled");
+        Assert.IsGreaterThan(0, statsCtx.GetStats().NodesVisited, "stats must accumulate when enabled");
     }
 
     [TestMethod]
-    [Timeout(10_000)]
+    [Timeout(10_000, CooperativeCancellation = true)]
     public void Build_DeeplyNestedAlternatives_CompletesQuickly()
     {
         /* every "alternative" forks and re-joins at a shared node; 24 of them

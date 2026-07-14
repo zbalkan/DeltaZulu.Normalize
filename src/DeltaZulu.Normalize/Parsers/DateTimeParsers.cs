@@ -11,7 +11,7 @@ internal static class DateTimeParsers
         var v = 0;
         while (len > 0 && TextRules.IsDigit(s[i]))
         {
-            v = unchecked(v * 10 + s[i] - '0');
+            v = unchecked((v * 10) + s[i] - '0');
             ++i;
             --len;
         }
@@ -45,8 +45,8 @@ internal static class DateTimeParsers
 
         days += day - 1;
 
-        var t = days * 86400 + hour * 3600L + minute * 60L + second;
-        var utcOffset = offsetHour * 3600 + offsetMinute * 60;
+        var t = (days * 86400) + (hour * 3600L) + (minute * 60L) + second;
+        var utcOffset = (offsetHour * 3600) + (offsetMinute * 60);
         if (offsetMode == '+')
         {
             utcOffset = -utcOffset; /* timestamp is ahead, "go back" to UTC */

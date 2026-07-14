@@ -70,7 +70,7 @@ internal static class NumberParsers
         int i;
         for (i = offs; i < npb.StrLen && TextRules.IsDigit(npb.Str[i]); i++)
         {
-            val = unchecked(val * 10 + npb.Str[i] - '0');
+            val = unchecked((val * 10) + npb.Str[i] - '0');
         }
 
         if (maxval > 0 && val > maxval)
@@ -166,7 +166,7 @@ internal static class NumberParsers
                 }
                 else
                 {
-                    val = val * 10 + c - '0';
+                    val = (val * 10) + c - '0';
                 }
             }
             else
@@ -284,7 +284,7 @@ internal static class NumberParsers
         ulong val = 0;
         for (i += 2; i < npb.StrLen && TextRules.IsHexDigit(npb.Str[i]); i++)
         {
-            val = unchecked(val * 16 + (ulong)TextRules.HexVal(npb.Str[i]));
+            val = unchecked((val * 16) + (ulong)TextRules.HexVal(npb.Str[i]));
         }
 
         if (!TextRules.IsSpace(npb.At(i)))

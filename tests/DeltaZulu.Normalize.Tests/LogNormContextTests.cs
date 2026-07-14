@@ -52,7 +52,7 @@ public class LogNormContextTests
 
         using var stop = new CancellationTokenSource();
         var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
-        Task[] readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() => {
+        var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() => {
             while (!stop.IsCancellationRequested)
             {
                 /* the initial rule must keep matching across every reload */
@@ -63,7 +63,7 @@ public class LogNormContextTests
                     return;
                 }
             }
-        })).ToArray();
+        }, TestContext.CancellationToken)).ToArray();
 
         for (var i = 1; i <= 50; i++)
         {
@@ -73,7 +73,7 @@ public class LogNormContextTests
         stop.Cancel();
         Task.WaitAll(readers, TimeSpan.FromSeconds(30));
 
-        Assert.AreEqual(0, failures.Count, string.Join("\n", failures));
+        Assert.IsEmpty(failures, string.Join("\n", failures));
 
         /* every loaded rule is visible afterwards */
         Assert.AreEqual(0, ctx.Normalize("msg 50 done", out JsonObject last));
@@ -95,4 +95,6 @@ public class LogNormContextTests
         Assert.AreEqual(0, ctx.Normalize("duration 0:00:42 bytes", out JsonObject j));
         Assert.AreEqual("0:00:42", j["field"]!.GetValue<string>());
     }
+
+    public TestContext TestContext { get; set; }
 }

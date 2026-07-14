@@ -3,17 +3,19 @@ using System.Text.Json.Nodes;
 namespace DeltaZulu.Normalize;
 
 /// <summary>
-/// PDAG construction (port of the build-time half of pdag.c).
-///
+/// <para>PDAG construction (port of the build-time half of pdag.c).</para>
+/// <para>
 /// Each rule is split into motifs; every motif adds an edge (and destination
 /// node) to the builder graph unless an identical edge already exists, in
 /// which case the existing path is walked ("merged"). Literal text is
 /// expanded into one single-character literal edge per char.
-///
+/// </para>
+/// <para>
 /// The optimization passes pdag.c applies in place (priority sort, literal
 /// path compaction) run during snapshot compilation instead — see
 /// <see cref="PdagCompiler"/> — so this graph stays append-only and further
 /// rulebases can be loaded at any time (hot reload).
+/// </para>
 /// </summary>
 internal static class PdagBuilder
 {

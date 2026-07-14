@@ -148,7 +148,7 @@ public class DirectoryRulebaseTests
         var errors = new List<string>();
         var ctx = NewContext(errors);
         Assert.AreNotEqual(0, ctx.LoadSamplesFromDirectory(_root));
-        Assert.IsTrue(errors.Any(e => e.Contains("20-bad.rulebase")),
+        Assert.Contains(e => e.Contains("20-bad.rulebase"), errors,
             $"error should name the failing file, got: {string.Join("; ", errors)}");
 
         /* rules loaded before the failure remain usable */
@@ -161,7 +161,7 @@ public class DirectoryRulebaseTests
         var errors = new List<string>();
         var ctx = NewContext(errors);
         Assert.AreNotEqual(0, ctx.LoadSamplesFromDirectory(_root));
-        Assert.IsTrue(errors.Any(e => e.Contains("no rulebase files")), string.Join("; ", errors));
+        Assert.Contains(e => e.Contains("no rulebase files"), errors, string.Join("; ", errors));
     }
 
     [TestMethod]
@@ -170,7 +170,7 @@ public class DirectoryRulebaseTests
         var errors = new List<string>();
         var ctx = NewContext(errors);
         Assert.AreNotEqual(0, ctx.LoadSamplesFromDirectory(Path.Combine(_root, "does-not-exist")));
-        Assert.IsTrue(errors.Any(e => e.Contains("cannot open rulebase directory")), string.Join("; ", errors));
+        Assert.Contains(e => e.Contains("cannot open rulebase directory"), errors, string.Join("; ", errors));
     }
 
     [TestMethod]

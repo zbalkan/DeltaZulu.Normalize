@@ -3,13 +3,16 @@ using static DeltaZulu.Normalize.Tests.TestHelpers;
 namespace DeltaZulu.Normalize.Tests;
 
 /// <summary>
+/// <para>
 /// Real-world rulebase patterns from production rulebases (Sagan, rsyslog,
 /// liblognorm-rulebase, etc.). Tests edge cases, escape sequences, and
 /// complex patterns found in actual log normalization use cases.
-///
+/// </para>
+/// <para>
 /// Note: in the v2 rulebase format the sample starts immediately after the
 /// tag-separating ':' of "rule=...:", so any whitespace written there is
 /// part of the pattern and must appear in the message as well.
+/// </para>
 /// </summary>
 [TestClass]
 public class RealWorldRulebaseTests

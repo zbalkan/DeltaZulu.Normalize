@@ -3,14 +3,15 @@ using System.Text.Json.Nodes;
 namespace DeltaZulu.Normalize;
 
 /// <summary>
-/// A node of the parse DAG (PDAG).
-///
+/// <para>A node of the parse DAG (PDAG).</para>
+/// <para>
 /// The rulebase is compiled into a rooted directed acyclic graph. Each node
 /// holds an ordered list of outgoing edges (<see cref="ParserInstance"/>);
 /// each edge is a motif parser that, when it matches a prefix of the
 /// remaining input, leads to the next node. A terminal node marks the end of
 /// at least one rule. User-defined types are separate, disconnected PDAG
 /// components referenced by name.
+/// </para>
 /// </summary>
 public sealed class Pdag
 {

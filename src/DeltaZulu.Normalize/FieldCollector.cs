@@ -28,12 +28,15 @@ internal sealed class FieldCollector
     private int _count;
     private bool _pooled;
 
-    public FieldCollector() => _entries = new Entry[InitialCapacity];
+    public FieldCollector()
+    {
+        _entries = new Entry[InitialCapacity];
+    }
 
     private FieldCollector(bool pooled)
     {
         _entries = ArrayPool<Entry>.Shared.Rent(InitialCapacity);
-        _pooled = true;
+        _pooled = pooled;
     }
 
     /// <summary>

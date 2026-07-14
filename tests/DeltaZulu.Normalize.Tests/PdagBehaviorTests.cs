@@ -85,7 +85,7 @@ public class PdagBehaviorTests
                 "while": {"type":"char-sep", "extradata":","} }% b
             """;
         var task = System.Threading.Tasks.Task.Run(() => TestHelpers.Normalize(rb, "a ,b"));
-        Assert.IsTrue(task.Wait(System.TimeSpan.FromSeconds(5)), "repeat parser hung instead of terminating");
+        Assert.IsTrue(task.Wait(System.TimeSpan.FromSeconds(5), TestContext.CancellationToken), "repeat parser hung instead of terminating");
     }
 
     [TestMethod]
@@ -192,7 +192,7 @@ public class PdagBehaviorTests
     [TestMethod]
     public void Prefix_LineIsPrependedToEveryRule()
     {
-        var rb = "prefix=%timestamp:date-rfc3164% %hostname:word% \n" +
+        const string rb = "prefix=%timestamp:date-rfc3164% %hostname:word% \n" +
                     "rule=:hello %name:word%";
         var (r, j) = TestHelpers.Normalize(rb, "Aug 18 13:18:45 myhost hello world");
         Assert.AreEqual(0, r);
@@ -208,4 +208,6 @@ public class PdagBehaviorTests
         Assert.AreEqual(0, r);
         Assert.AreEqual("hello %name:word%", j["metadata"]!["rule"]!["mockup"]!.GetValue<string>());
     }
+
+    public TestContext TestContext { get; set; }
 }

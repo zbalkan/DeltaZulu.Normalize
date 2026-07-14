@@ -40,29 +40,100 @@ internal static class PdagCompiler
         return snap;
     }
 
-    private sealed class State
+    /// <summary>
+    /// GraphViz DOT description of the snapshot's main component (port of
+    /// ln_genDotPDAGGraph, previously generated from the builder graph).
+    /// </summary>
+    public static string GenerateDot(CompiledPdag snap)
     {
-        private sealed class TempNode
+        var sb = new StringBuilder();
+        var visited = new HashSet<int>();
+        sb.Append("digraph pdag {\n");
+        GenerateDotRec(snap, snap.RootNode, sb, visited);
+        sb.Append("}\n");
+        return sb.ToString();
+    }
+
+    private static void GenerateDotRec(CompiledPdag snap, int nodeIdx, StringBuilder sb, HashSet<int> visited)
+    {
+        if (!visited.Add(nodeIdx))
         {
-            public readonly List<CompiledEdge> Edges = new();
-            public int TerminalIdx = -1;
-            public int RefCount;
+            return;
         }
 
-        private readonly Dictionary<Pdag, int> _map = new();
-        private readonly List<TempNode> _nodes = new();
+        var node = snap.Nodes[nodeIdx];
+        sb.Append($"l{nodeIdx} [ label=\"{node.RefCount}\"");
+        if (node.IsTerminal)
+        {
+            sb.Append(" style=\"bold\"");
+        }
+
+        sb.Append("]\n");
+        for (var i = node.EdgeStart; i < node.EdgeStart + node.EdgeCount; ++i)
+        {
+            var edge = snap.Edges[i];
+            sb.Append($"l{nodeIdx} -> l{edge.TargetNode} [label=\"");
+            sb.Append(ParserTable.IdToName(edge.PrsId));
+            sb.Append(':');
+            if (edge.PrsId == ParserTable.LiteralId)
+            {
+                foreach (var c in LiteralParser.DataForDisplay(edge.Data!))
+                {
+                    if (c != '\\' && c != '"')
+                    {
+                        sb.Append(c);
+                    }
+                }
+            }
+            sb.Append("\" style=\"dotted\"]\n");
+            GenerateDotRec(snap, edge.TargetNode, sb, visited);
+        }
+    }
+
+    private sealed class State
+    {
         public readonly List<TerminalInfo> Terminals = new();
 
+        private readonly Dictionary<Pdag, int> _map = new();
+
+        private readonly List<TempNode> _nodes = new();
+
+        /// <summary>Flatten the per-node edge lists into the final contiguous arrays.</summary>
+        public CompiledNode[] BuildNodes(out CompiledEdge[] edges)
+        {
+            var nodes = new CompiledNode[_nodes.Count];
+            var edgeCount = 0;
+            foreach (var t in _nodes)
+            {
+                edgeCount += t.Edges.Count;
+            }
+
+            edges = new CompiledEdge[edgeCount];
+
+            var offset = 0;
+            for (var i = 0; i < _nodes.Count; ++i)
+            {
+                var t = _nodes[i];
+                t.Edges.CopyTo(edges, offset);
+                nodes[i] = new CompiledNode(offset, t.Edges.Count, t.TerminalIdx, t.RefCount);
+                offset += t.Edges.Count;
+            }
+            return nodes;
+        }
+
         /// <summary>
+        /// <para>
         /// Compile one builder node (and, recursively, everything reachable
         /// from it) into the arena, returning its node index. Shared builder
         /// nodes map to a single compiled node, preserving the DAG shape.
-        ///
+        /// </para>
+        /// <para>
         /// <paramref name="optimize"/> selects the passes ln_pdagOptimize runs
         /// on the main and type components: priority-sorting each node's edges
         /// and compacting unnamed literal chains. "repeat" sub-components are
         /// compiled verbatim (the C engine never optimizes them, and sorting
         /// would change their evaluation order).
+        /// </para>
         /// </summary>
         public int CompileNode(Pdag dag, bool optimize)
         {
@@ -157,138 +228,33 @@ internal static class PdagCompiler
         /// depends on their construct-time data, which is why this runs at
         /// compile time and not per message.
         /// </summary>
-        private static ExtractMode ClassifyExtract(byte prsId, object? data)
+        private static ExtractMode ClassifyExtract(byte prsId, object? data) => ParserTable.IdToName(prsId) switch {
+            /* value == matched substring, unconditionally */
+            "literal" or "whitespace" or "word" or "alpha" or "rest" or "kernel-timestamp" or "date-iso" or "time-24hr" or "time-12hr" or "duration" or "ipv4" or "ipv6" or "mac48" or "string-to" or "char-to" or "char-sep" => ExtractMode.RawSpan,
+            /* value == matched substring in the default string format only */
+            "number" => ((NumberParsers.NumberData)data!).FmtMode == FormatMode.AsString
+                            ? ExtractMode.RawSpan : ExtractMode.Deferred,
+            "float" => ((NumberParsers.FloatData)data!).FmtMode == FormatMode.AsString
+                            ? ExtractMode.RawSpan : ExtractMode.Deferred,
+            "hexnumber" => ((NumberParsers.HexNumberData)data!).FmtMode == FormatMode.AsString
+                            ? ExtractMode.RawSpan : ExtractMode.Deferred,
+            "date-rfc3164" or "date-rfc5424" => ((DateTimeParsers.DateData)data!).FmtMode == FormatMode.AsString
+                            ? ExtractMode.RawSpan : ExtractMode.Deferred,
+            /* matching is the expensive part; re-running it to extract
+             * would cost more than eager extraction saves */
+            "repeat" or "json" or "cee-syslog" or "cef" or "v2-iptables" or "name-value-list" or "checkpoint-lea" => ExtractMode.Eager,
+            /* derived values (stripped quotes, unescaping, sub-objects):
+             * re-run the cheap parse on the success unwind */
+            _ => ExtractMode.Deferred,
+        };
+
+        private sealed class TempNode
         {
-            switch (ParserTable.IdToName(prsId))
-            {
-                /* value == matched substring, unconditionally */
-                case "literal":
-                case "whitespace":
-                case "word":
-                case "alpha":
-                case "rest":
-                case "kernel-timestamp":
-                case "date-iso":
-                case "time-24hr":
-                case "time-12hr":
-                case "duration":
-                case "ipv4":
-                case "ipv6":
-                case "mac48":
-                case "string-to":
-                case "char-to":
-                case "char-sep":
-                    return ExtractMode.RawSpan;
-
-                /* value == matched substring in the default string format only */
-                case "number":
-                    return ((NumberParsers.NumberData)data!).FmtMode == FormatMode.AsString
-                        ? ExtractMode.RawSpan : ExtractMode.Deferred;
-
-                case "float":
-                    return ((NumberParsers.FloatData)data!).FmtMode == FormatMode.AsString
-                        ? ExtractMode.RawSpan : ExtractMode.Deferred;
-
-                case "hexnumber":
-                    return ((NumberParsers.HexNumberData)data!).FmtMode == FormatMode.AsString
-                        ? ExtractMode.RawSpan : ExtractMode.Deferred;
-
-                case "date-rfc3164":
-                case "date-rfc5424":
-                    return ((DateTimeParsers.DateData)data!).FmtMode == FormatMode.AsString
-                        ? ExtractMode.RawSpan : ExtractMode.Deferred;
-
-                /* matching is the expensive part; re-running it to extract
-                 * would cost more than eager extraction saves */
-                case "repeat":
-                case "json":
-                case "cee-syslog":
-                case "cef":
-                case "v2-iptables":
-                case "name-value-list":
-                case "checkpoint-lea":
-                    return ExtractMode.Eager;
-
-                /* derived values (stripped quotes, unescaping, sub-objects):
-                 * re-run the cheap parse on the success unwind */
-                default:
-                    return ExtractMode.Deferred;
-            }
-        }
-
-        /// <summary>Flatten the per-node edge lists into the final contiguous arrays.</summary>
-        public CompiledNode[] BuildNodes(out CompiledEdge[] edges)
-        {
-            var nodes = new CompiledNode[_nodes.Count];
-            var edgeCount = 0;
-            foreach (var t in _nodes)
-            {
-                edgeCount += t.Edges.Count;
-            }
-
-            edges = new CompiledEdge[edgeCount];
-
-            var offset = 0;
-            for (var i = 0; i < _nodes.Count; ++i)
-            {
-                var t = _nodes[i];
-                t.Edges.CopyTo(edges, offset);
-                nodes[i] = new CompiledNode(offset, t.Edges.Count, t.TerminalIdx, t.RefCount);
-                offset += t.Edges.Count;
-            }
-            return nodes;
+            public readonly List<CompiledEdge> Edges = new();
+            public int RefCount;
+            public int TerminalIdx = -1;
         }
     }
 
     /* ---------- DOT graph generation (debug aid) ---------- */
-
-    /// <summary>
-    /// GraphViz DOT description of the snapshot's main component (port of
-    /// ln_genDotPDAGGraph, previously generated from the builder graph).
-    /// </summary>
-    public static string GenerateDot(CompiledPdag snap)
-    {
-        var sb = new StringBuilder();
-        var visited = new HashSet<int>();
-        sb.Append("digraph pdag {\n");
-        GenerateDotRec(snap, snap.RootNode, sb, visited);
-        sb.Append("}\n");
-        return sb.ToString();
-    }
-
-    private static void GenerateDotRec(CompiledPdag snap, int nodeIdx, StringBuilder sb, HashSet<int> visited)
-    {
-        if (!visited.Add(nodeIdx))
-        {
-            return;
-        }
-
-        var node = snap.Nodes[nodeIdx];
-        sb.Append($"l{nodeIdx} [ label=\"{node.RefCount}\"");
-        if (node.IsTerminal)
-        {
-            sb.Append(" style=\"bold\"");
-        }
-
-        sb.Append("]\n");
-        for (var i = node.EdgeStart; i < node.EdgeStart + node.EdgeCount; ++i)
-        {
-            var edge = snap.Edges[i];
-            sb.Append($"l{nodeIdx} -> l{edge.TargetNode} [label=\"");
-            sb.Append(ParserTable.IdToName(edge.PrsId));
-            sb.Append(':');
-            if (edge.PrsId == ParserTable.LiteralId)
-            {
-                foreach (var c in LiteralParser.DataForDisplay(edge.Data!))
-                {
-                    if (c != '\\' && c != '"')
-                    {
-                        sb.Append(c);
-                    }
-                }
-            }
-            sb.Append("\" style=\"dotted\"]\n");
-            GenerateDotRec(snap, edge.TargetNode, sb, visited);
-        }
-    }
 }

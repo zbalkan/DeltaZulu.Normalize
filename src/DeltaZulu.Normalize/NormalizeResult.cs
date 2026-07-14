@@ -6,16 +6,19 @@ using System.Text.Json.Nodes;
 namespace DeltaZulu.Normalize;
 
 /// <summary>
+/// <para>
 /// The flat result of a normalization: an ordered list of extracted fields
 /// whose string values are zero-copy slices of the input message. JSON
 /// representations are produced on demand — <see cref="WriteTo"/> and
 /// <see cref="ToJsonString"/> serialize the slices directly without
 /// allocating per-field strings, and <see cref="ToJsonObject"/> materializes
 /// a <see cref="JsonObject"/> once and caches it.
-///
+/// </para>
+/// <para>
 /// A live instance keeps the input message string reachable (field values
 /// reference slices of it). Lazy materialization is not thread-safe; use one
 /// instance from one thread at a time, like any <see cref="JsonNode"/>.
+/// </para>
 /// </summary>
 public sealed class NormalizeResult
 {

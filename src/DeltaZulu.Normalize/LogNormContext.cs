@@ -3,16 +3,19 @@ using System.Text.Json.Nodes;
 namespace DeltaZulu.Normalize;
 
 /// <summary>
+/// <para>
 /// The library context: holds the rulebase (the builder PDAG and its
 /// user-defined-type components), annotations and configuration. Load one or
 /// more rulebases, then call <see cref="Normalize"/> for each message.
-///
+/// </para>
+/// <para>
 /// Normalization runs against an immutable compiled snapshot of the rulebase,
 /// so concurrent <see cref="Normalize"/> calls are always safe. Rulebases may
 /// be loaded at any time, including after normalization has started ("hot
 /// reload"): a load invalidates the snapshot and the next Normalize compiles
 /// and atomically publishes a new one, while in-flight normalizations finish
 /// on the snapshot they started with.
+/// </para>
 /// </summary>
 public sealed class LogNormContext
 {
@@ -46,7 +49,7 @@ public sealed class LogNormContext
     internal string? ConfFile;
     internal int ConfLineNumber;
 
-    private readonly object _pdagLock = new();
+    private readonly Lock _pdagLock = new();
     private CompiledPdag? _snapshot;
 
     /// <summary>
@@ -121,11 +124,12 @@ public sealed class LogNormContext
     public int LoadSamplesFromString(string rulebase) => LoadUnderLock(() => RulebaseLoader.LoadString(this, rulebase));
 
     /// <summary>
-    /// Normalize a message against the loaded rulebase.
-    ///
+    /// <para>Normalize a message against the loaded rulebase.</para>
+    /// <para>
     /// On success (return 0) <paramref name="result"/> holds the extracted
     /// fields. On failure it holds "originalmsg" and "unparsed-data", exactly
     /// like the C library.
+    /// </para>
     /// </summary>
     public int Normalize(string message, out JsonObject result)
         => Normalizer.Normalize(this, EnsureCompiled(), message, out result);

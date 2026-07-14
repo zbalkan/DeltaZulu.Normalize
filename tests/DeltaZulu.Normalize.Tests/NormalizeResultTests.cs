@@ -38,7 +38,7 @@ public class NormalizeResultTests
     public void TryGetRawText_ReturnsSliceOfInputMessage()
     {
         var ctx = Load("rule=:hello %first:word% %second:word%");
-        var message = "hello foo bar";
+        const string message = "hello foo bar";
         ctx.Normalize(message, out NormalizeResult result);
 
         Assert.IsTrue(result.TryGetRawText("first", out var text));
@@ -147,7 +147,7 @@ public class NormalizeResultTests
     [TestMethod]
     public void EagerStructuredValues_SurviveTheFlatPath()
     {
-        var ctx = Load("""rule=:data %fields:json%""");
+        var ctx = Load("rule=:data %fields:json%");
         ctx.Normalize("""data {"a": 1, "b": [true, null]}""", out NormalizeResult result);
 
         Assert.IsTrue(result.Matched);

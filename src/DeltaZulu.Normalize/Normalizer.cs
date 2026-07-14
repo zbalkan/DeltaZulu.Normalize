@@ -5,9 +5,11 @@ using System.Text.Json.Nodes;
 namespace DeltaZulu.Normalize;
 
 /// <summary>
+/// <para>
 /// The runtime half of pdag.c: the recursive PDAG walker with backtracking,
 /// operating on an immutable <see cref="CompiledPdag"/> snapshot.
-///
+/// </para>
+/// <para>
 /// At each node the outgoing edges are tried in priority order. When an edge
 /// matches a prefix of the remaining input, the walker recurses into its
 /// destination with the rest of the input; extracted values are only
@@ -15,6 +17,7 @@ namespace DeltaZulu.Normalize;
 /// terminal node (so failed paths leave no partial extractions behind).
 /// Parsing succeeds when a terminal node is reached at end-of-input (or
 /// anywhere, for partial matches such as user-defined types).
+/// </para>
 /// </summary>
 internal static class Normalizer
 {
@@ -147,10 +150,12 @@ internal static class Normalizer
     }
 
     /// <summary>
+    /// <para>
     /// Try a single edge at the given offset (port of tryParser). Custom
     /// types recursively parse against their own component, accepting a
     /// partial match of the remaining input.
-    ///
+    /// </para>
+    /// <para>
     /// Match and extraction are split in two phases: this call normally only
     /// measures (wantValue: false) and the value is produced on the success
     /// unwind (see <see cref="ExtractMode"/>), so backtracked paths never
@@ -159,6 +164,7 @@ internal static class Normalizer
     /// failOnDuplicate is also eager because its match consults
     /// <paramref name="curFields"/>, which deeper commits mutate before the
     /// unwind reaches this edge.
+    /// </para>
     /// </summary>
     private static int TryParser(Npb npb, ref int offs, ref int parsed, ref FieldValue value,
         out bool valueMaterialized, in CompiledEdge prs, bool failOnDuplicate, FieldCollector? curFields,
@@ -271,7 +277,9 @@ internal static class Normalizer
         var snap = npb.Snap;
         var node = snap.Nodes[nodeIdx];
         var r = ErrorCodes.WrongParser;
+#pragma warning disable IDE0059 // Unnecessary assignment of a value
         var parsedTo = npb.ParsedTo;
+#pragma warning restore IDE0059 // Unnecessary assignment of a value
         var parsed = 0;
         FieldValue value = default;
 

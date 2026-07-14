@@ -4,11 +4,12 @@ using System.Text;
 namespace DeltaZulu.Normalize;
 
 /// <summary>
-/// Character classification and rulebase-string helpers.
-///
+/// <para>Character classification and rulebase-string helpers.</para>
+/// <para>
 /// The C library operates on bytes with "C" locale ctype semantics; these
 /// helpers reproduce that behaviour on chars (ASCII-only classification) so
 /// that parsing decisions match the reference implementation.
+/// </para>
 /// </summary>
 internal static class TextRules
 {
@@ -84,7 +85,7 @@ internal static class TextRules
                 case 'x':
                     if (i + 3 < s.Length && IsHexDigit(s[i + 2]) && IsHexDigit(s[i + 3]))
                     {
-                        sb.Append((char)(HexVal(s[i + 2]) * 16 + HexVal(s[i + 3])));
+                        sb.Append((char)((HexVal(s[i + 2]) * 16) + HexVal(s[i + 3])));
                         i += 4;
                     }
                     else

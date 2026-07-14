@@ -72,10 +72,10 @@ public class FieldCollectorPoolingTests
                     return;
                 }
             }
-        })).ToArray();
+        }, TestContext.CancellationToken)).ToArray();
 
         Assert.IsTrue(Task.WaitAll(tasks, TimeSpan.FromSeconds(30)), "concurrent normalization workers did not finish within the timeout");
-        Assert.AreEqual(0, failures.Count, string.Join("\n", failures));
+        Assert.IsEmpty(failures, string.Join("\n", failures));
     }
 
     [TestMethod]
@@ -95,4 +95,6 @@ public class FieldCollectorPoolingTests
             Assert.AreEqual(msg, j["originalmsg"]!.GetValue<string>());
         }
     }
+
+    public TestContext TestContext { get; set; }
 }

@@ -4,19 +4,23 @@ using System.Text.Json.Nodes;
 namespace DeltaZulu.Normalize;
 
 /// <summary>
+/// <para>
 /// Rulebase (v2 "samples file") loader: parses rulebase text into calls
 /// against <see cref="PdagBuilder"/>.
-///
+/// </para>
+/// <para>
 /// A rulebase is a sequence of logical lines, each one of:
 /// "version=2" (file header only), "prefix=...", "extendprefix=...",
 /// "rule=[tags:]pattern", "type=@name:pattern", "annotate=tag:+field=&quot;value&quot;...",
 /// or "include=path". A rule/type pattern is itself a sequence of literal
 /// text and "%name:type[params]%" field definitions.
-///
+/// </para>
+/// <para>
 /// Scope note: only the v2 rulebase syntax is supported. The legacy v1
 /// engine (a separate, older normalizer with its own rulebase dialect) is
 /// out of scope for this port — the PDAG model is what v2 introduced and is
 /// the point of this exercise.
+/// </para>
 /// </summary>
 internal static class RulebaseLoader
 {
@@ -379,7 +383,7 @@ internal static class RulebaseLoader
 
     /* ---------- rule / type ---------- */
 
-    private static bool ProcessTags(LogNormContext ctx, string line, ref int offs, out JsonArray? tagBucket)
+    private static bool ProcessTags(string line, ref int offs, out JsonArray? tagBucket)
     {
         tagBucket = null;
         var i = offs;
@@ -420,7 +424,7 @@ internal static class RulebaseLoader
 
     private static int ProcessRule(LogNormContext ctx, string line, int offs)
     {
-        if (!ProcessTags(ctx, line, ref offs, out var tagBucket))
+        if (!ProcessTags(line, ref offs, out var tagBucket))
         {
             ctx.Error($"error parsing tags in rule line: '{line}'");
             return 1;

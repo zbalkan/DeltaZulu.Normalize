@@ -20,6 +20,6 @@ public class LogClusterMinerTests
         Assert.IsFalse(candidate.IsExecutableRule);
         Assert.Contains("/* unresolved gap:", candidate.LiblognormRule);
         Assert.DoesNotContain("%field1:rest% down at node", candidate.LiblognormRule);
-        Assert.IsTrue(candidate.RuleWarnings.Count > 0);
+        Assert.IsNotEmpty(candidate.RuleWarnings);
     }
 }

@@ -17,10 +17,10 @@ internal static class NetworkParsers
         var val = npb.Str[i++] - '0';
         if (i < npb.StrLen && TextRules.IsDigit(npb.Str[i]))
         {
-            val = val * 10 + npb.Str[i++] - '0';
+            val = (val * 10) + npb.Str[i++] - '0';
             if (i < npb.StrLen && TextRules.IsDigit(npb.Str[i]))
             {
-                val = val * 10 + npb.Str[i++] - '0';
+                val = (val * 10) + npb.Str[i++] - '0';
             }
         }
         if (val > 255)
@@ -254,7 +254,7 @@ internal static class NetworkParsers
 
         for (var b = 1; b < 6; ++b)
         {
-            var g = i + b * 3;
+            var g = i + (b * 3);
             if (!TextRules.IsHexDigit(s[g]) || !TextRules.IsHexDigit(s[g + 1]))
             {
                 return ErrorCodes.WrongParser;
