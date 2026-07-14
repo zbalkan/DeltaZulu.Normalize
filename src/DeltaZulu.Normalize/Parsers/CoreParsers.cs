@@ -247,6 +247,11 @@ internal static class CoreParsers
         }
 
         parsed = idx + 2; /* both quotes are consumed */
+        if (parsed == 3 && npb.Str[offs + 1] == '-')
+        {
+            return ErrorCodes.WrongParser;
+        }
+
         if (wantValue)
         {
             value = JsonValue.Create(npb.Str.Substring(offs + 1, parsed - 2));

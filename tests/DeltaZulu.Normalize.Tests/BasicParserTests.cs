@@ -180,21 +180,23 @@ public class BasicParserTests
     }
 
     [TestMethod]
-    public void StringParser_DashIsEmptyAcceptsPythonBooleanAndQuotedDash()
+    public void StringParser_DashIsEmptyAcceptsPythonBooleanAndRejectsQuotedDash()
     {
         const string rb = """rule=:%str:string{"option.dashIsEmpty":True}%""";
 
         AssertJsonEquals("""{ "str": "" }""", TestHelpers.Normalize(rb, "-").Json);
 
-        AssertJsonEquals("""{ "str": "" }""", TestHelpers.Normalize(rb, "\"-\"").Json);
+        var quotedDash = TestHelpers.Normalize(rb, "\"-\"");
+        Assert.AreNotEqual(0, quotedDash.Result);
+        AssertJsonEquals("""{ "originalmsg": "\"-\"", "unparsed-data": "\"-\"" }""", quotedDash.Json);
     }
 
     [TestMethod]
-    public void StringParser_DashIsEmptyAcceptsQuotedDashWithVersionedRulebase()
+    public void FieldStringDashIsEmptyFixture_RejectsQuotedDashCases()
     {
-        /* Regression coverage for the upstream field_string_dashIsEmpty.sh
-         * fixture: option.dashIsEmpty maps a dash-only string token to an
-         * empty string even when the string parser consumed surrounding quotes. */
+        /* Regression coverage for the C reference behavior observed by the
+         * parity harness for field_string_dashIsEmpty.sh: both quoted-dash
+         * fixture cases are rejected and reported as unparsed data. */
         const string rb = """
             version=2
             rule=:%str:string{"option.dashIsEmpty":True}%
@@ -210,8 +212,35 @@ public class BasicParserTests
 
             var result = ctx.Normalize("\"-\"", out JsonObject json);
 
-            Assert.AreEqual(0, result);
-            AssertJsonEquals("""{ "str": "" }""", json);
+            Assert.AreNotEqual(0, result);
+            AssertJsonEquals("""{ "originalmsg": "\"-\"", "unparsed-data": "\"-\"" }""", json);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void QuotedString_RejectsQuotedDashWithVersionedRulebase()
+    {
+        const string rb = """
+            version=2
+            rule=:%str:quoted-string%
+            """;
+
+        var path = Path.Combine(Path.GetTempPath(), "dzn-quoted-dash-" + Guid.NewGuid().ToString("N") + ".rulebase");
+        try
+        {
+            File.WriteAllText(path, rb);
+            var ctx = new LogNormContext();
+            var loadResult = ctx.LoadSamples(path);
+            Assert.AreEqual(0, loadResult);
+
+            var result = ctx.Normalize("\"-\"", out JsonObject json);
+
+            Assert.AreNotEqual(0, result);
+            AssertJsonEquals("""{ "originalmsg": "\"-\"", "unparsed-data": "\"-\"" }""", json);
         }
         finally
         {

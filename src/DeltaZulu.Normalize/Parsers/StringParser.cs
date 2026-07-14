@@ -270,6 +270,11 @@ internal static class StringParser
 
         if (data.DashIsEmpty && IsDashOnlyToken(s, offs, parsed, haveQuotes, data))
         {
+            if (haveQuotes)
+            {
+                return ErrorCodes.WrongParser;
+            }
+
             if (wantValue)
             {
                 value = JsonValue.Create(string.Empty);
