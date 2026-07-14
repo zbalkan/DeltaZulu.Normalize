@@ -11,116 +11,14 @@ namespace DeltaZulu.Normalize.Parsers;
 /// </summary>
 internal static class StringParser
 {
-    internal enum QuoteMode
-    { Auto = 0, None = 1, Required = 2 }
-
     internal enum EscMode
     { None = 0, Backslash = 1, Double = 2, Both = 3 }
 
     internal enum MatchingMode
     { Exact = 0, Lazy = 1 }
 
-    internal sealed class Data
-    {
-        public QuoteMode QuoteMode = QuoteMode.Auto;
-        public bool StripQuotes = true;
-        public EscMode EscMd = EscMode.Both;
-        public MatchingMode Matching = MatchingMode.Exact;
-        public bool DashIsEmpty;
-        public char QCharBegin = '"';
-        public char QCharEnd = '"';
-
-        /// <summary>Permitted-character bitset for the U+0000..U+00FF range,
-        /// packed as 4 ulongs (256 bits) instead of a bool[256] for a smaller
-        /// footprint and cheaper per-char membership test in the hot loop.</summary>
-        private readonly ulong[] _permChars = new ulong[4];
-
-        /// <summary>True when "matching.permitted" restricted the set; chars
-        /// above U+00FF (unrepresentable in the table) are then rejected.
-        /// Without a restriction every char is permitted, like the C library's
-        /// all-true byte table.</summary>
-        public bool Restricted;
-
-        public void FillAllPermChars() => _permChars[0] = _permChars[1] = _permChars[2] = _permChars[3] = ulong.MaxValue;
-
-        public void ClearPermChars() => Array.Clear(_permChars);
-
-        public void SetPermChar(int c) => _permChars[c >> 6] |= 1UL << (c & 63);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsPermChar(char c) => (_permChars[c >> 6] & (1UL << (c & 63))) != 0;
-    }
-
-    private static void AddPermittedCharArr(Data data, string chars)
-    {
-        foreach (var c in chars)
-        {
-            data.SetPermChar((byte)c);
-        }
-    }
-
-    private static void AddPermittedFromTo(Data data, char from, char to)
-    {
-        for (int c = from; c <= to; ++c)
-        {
-            data.SetPermChar(c);
-        }
-    }
-
-    private static void AddPermittedChars(Data data, JsonNode? val)
-    {
-        var s = JsonText.GetLenientString(val);
-        if (s != null)
-        {
-            AddPermittedCharArr(data, s);
-        }
-    }
-
-    private static void AddPermittedCharsViaArray(LogNormContext ctx, Data data, JsonArray arr)
-    {
-        foreach (var elem in arr)
-        {
-            if (elem is not JsonObject eobj)
-            {
-                continue;
-            }
-
-            foreach ((var key, var val) in eobj)
-            {
-                if (string.Equals(key, "chars", StringComparison.OrdinalIgnoreCase))
-                {
-                    AddPermittedChars(data, val);
-                }
-                else if (string.Equals(key, "class", StringComparison.OrdinalIgnoreCase))
-                {
-                    var optval = JsonText.GetLenientString(val) ?? string.Empty;
-                    if (string.Equals(optval, "digit", StringComparison.OrdinalIgnoreCase))
-                    {
-                        AddPermittedCharArr(data, "0123456789");
-                    }
-                    else if (string.Equals(optval, "hexdigit", StringComparison.OrdinalIgnoreCase))
-                    {
-                        AddPermittedCharArr(data, "0123456789aAbBcCdDeEfF");
-                    }
-                    else if (string.Equals(optval, "alpha", StringComparison.OrdinalIgnoreCase))
-                    {
-                        AddPermittedFromTo(data, 'a', 'z');
-                        AddPermittedFromTo(data, 'A', 'Z');
-                    }
-                    else if (string.Equals(optval, "alnum", StringComparison.OrdinalIgnoreCase))
-                    {
-                        AddPermittedCharArr(data, "0123456789");
-                        AddPermittedFromTo(data, 'a', 'z');
-                        AddPermittedFromTo(data, 'A', 'Z');
-                    }
-                    else
-                    {
-                        ctx.Error($"invalid character class '{optval}'");
-                    }
-                }
-            }
-        }
-    }
+    internal enum QuoteMode
+    { Auto = 0, None = 1, Required = 2 }
 
     public static int Construct(LogNormContext ctx, JsonObject config, out object? pdata)
     {
@@ -405,6 +303,77 @@ internal static class StringParser
         return 0;
     }
 
+    private static void AddPermittedCharArr(Data data, string chars)
+    {
+        foreach (var c in chars)
+        {
+            data.SetPermChar((byte)c);
+        }
+    }
+
+    private static void AddPermittedChars(Data data, JsonNode? val)
+    {
+        var s = JsonText.GetLenientString(val);
+        if (s != null)
+        {
+            AddPermittedCharArr(data, s);
+        }
+    }
+
+    private static void AddPermittedCharsViaArray(LogNormContext ctx, Data data, JsonArray arr)
+    {
+        foreach (var elem in arr)
+        {
+            if (elem is not JsonObject eobj)
+            {
+                continue;
+            }
+
+            foreach ((var key, var val) in eobj)
+            {
+                if (string.Equals(key, "chars", StringComparison.OrdinalIgnoreCase))
+                {
+                    AddPermittedChars(data, val);
+                }
+                else if (string.Equals(key, "class", StringComparison.OrdinalIgnoreCase))
+                {
+                    var optval = JsonText.GetLenientString(val) ?? string.Empty;
+                    if (string.Equals(optval, "digit", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddPermittedCharArr(data, "0123456789");
+                    }
+                    else if (string.Equals(optval, "hexdigit", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddPermittedCharArr(data, "0123456789aAbBcCdDeEfF");
+                    }
+                    else if (string.Equals(optval, "alpha", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddPermittedFromTo(data, 'a', 'z');
+                        AddPermittedFromTo(data, 'A', 'Z');
+                    }
+                    else if (string.Equals(optval, "alnum", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddPermittedCharArr(data, "0123456789");
+                        AddPermittedFromTo(data, 'a', 'z');
+                        AddPermittedFromTo(data, 'A', 'Z');
+                    }
+                    else
+                    {
+                        ctx.Error($"invalid character class '{optval}'");
+                    }
+                }
+            }
+        }
+    }
+
+    private static void AddPermittedFromTo(Data data, char from, char to)
+    {
+        for (int c = from; c <= to; ++c)
+        {
+            data.SetPermChar(c);
+        }
+    }
+
     /// <summary>
     /// Remove escape characters from an extracted value. An escape leader
     /// (a backslash, or the first of a doubled quote char) is dropped and
@@ -451,5 +420,37 @@ internal static class StringParser
         {
             ArrayPool<char>.Shared.Return(buffer);
         }
+    }
+
+    internal sealed class Data
+    {
+        public bool DashIsEmpty;
+        public EscMode EscMd = EscMode.Both;
+        public MatchingMode Matching = MatchingMode.Exact;
+        public char QCharBegin = '"';
+        public char QCharEnd = '"';
+        public QuoteMode QuoteMode = QuoteMode.Auto;
+
+        /// <summary>True when "matching.permitted" restricted the set; chars
+        /// above U+00FF (unrepresentable in the table) are then rejected.
+        /// Without a restriction every char is permitted, like the C library's
+        /// all-true byte table.</summary>
+        public bool Restricted;
+
+        public bool StripQuotes = true;
+
+        /// <summary>Permitted-character bitset for the U+0000..U+00FF range,
+        /// packed as 4 ulongs (256 bits) instead of a bool[256] for a smaller
+        /// footprint and cheaper per-char membership test in the hot loop.</summary>
+        private readonly ulong[] _permChars = new ulong[4];
+
+        public void ClearPermChars() => Array.Clear(_permChars);
+
+        public void FillAllPermChars() => _permChars[0] = _permChars[1] = _permChars[2] = _permChars[3] = ulong.MaxValue;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool IsPermChar(char c) => (_permChars[c >> 6] & (1UL << (c & 63))) != 0;
+
+        public void SetPermChar(int c) => _permChars[c >> 6] |= 1UL << (c & 63);
     }
 }

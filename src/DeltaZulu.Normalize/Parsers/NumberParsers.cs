@@ -13,10 +13,68 @@ internal enum FormatMode
 
 internal static class NumberParsers
 {
-    internal sealed class NumberData
+    public static int ConstructFloat(LogNormContext ctx, JsonObject config, out object? pdata)
     {
-        public long MaxVal;
-        public FormatMode FmtMode = FormatMode.AsString;
+        var data = new FloatData();
+        foreach ((var key, var val) in config)
+        {
+            if (key == "format")
+            {
+                var fmtmode = JsonText.GetLenientString(val) ?? string.Empty;
+                if (fmtmode == "number")
+                {
+                    data.FmtMode = FormatMode.AsNumber;
+                }
+                else if (fmtmode == "string")
+                {
+                    data.FmtMode = FormatMode.AsString;
+                }
+                else
+                {
+                    ctx.Error($"invalid value for float:format {fmtmode}");
+                }
+            }
+            else if (!IsDashName(key, val))
+            {
+                ctx.Error($"invalid param for float: {key}");
+            }
+        }
+        pdata = data;
+        return 0;
+    }
+
+    public static int ConstructHexNumber(LogNormContext ctx, JsonObject config, out object? pdata)
+    {
+        var data = new HexNumberData();
+        foreach ((var key, var val) in config)
+        {
+            if (key == "maxval")
+            {
+                data.MaxVal = unchecked((ulong)JsonText.GetLenientInt64(val));
+            }
+            else if (key == "format")
+            {
+                var fmtmode = JsonText.GetLenientString(val) ?? string.Empty;
+                if (fmtmode == "number")
+                {
+                    data.FmtMode = FormatMode.AsNumber;
+                }
+                else if (fmtmode == "string")
+                {
+                    data.FmtMode = FormatMode.AsString;
+                }
+                else
+                {
+                    ctx.Error($"invalid value for hexnumber:format {fmtmode}");
+                }
+            }
+            else if (!IsDashName(key, val))
+            {
+                ctx.Error($"invalid param for hexnumber: {key}");
+            }
+        }
+        pdata = data;
+        return 0;
     }
 
     public static int ConstructNumber(LogNormContext ctx, JsonObject config, out object? pdata)
@@ -47,81 +105,6 @@ internal static class NumberParsers
             else if (!IsDashName(key, val))
             {
                 ctx.Error($"invalid param for number: {key}");
-            }
-        }
-        pdata = data;
-        return 0;
-    }
-
-    /// <summary>An unnamed field ("-") leaves a name key in the config; constructs must tolerate it.</summary>
-    internal static bool IsDashName(string key, JsonNode? val)
-        => key == "name" && JsonText.GetLenientString(val) == "-";
-
-    /// <summary>A decimal digit run (always held as 64 bit internally).</summary>
-    public static int ParseNumber(Npb npb, ref int offs, object? pdata, string? parserName,
-        out int parsed, bool wantValue, ref JsonNode? value)
-    {
-        parsed = 0;
-        var data = (NumberData?)pdata;
-        var fmtMode = data?.FmtMode ?? FormatMode.AsString;
-        var maxval = data?.MaxVal ?? 0;
-
-        long val = 0;
-        int i;
-        for (i = offs; i < npb.StrLen && TextRules.IsDigit(npb.Str[i]); i++)
-        {
-            val = unchecked((val * 10) + npb.Str[i] - '0');
-        }
-
-        if (maxval > 0 && val > maxval)
-        {
-            return ErrorCodes.WrongParser;
-        }
-
-        if (i == offs)
-        {
-            return ErrorCodes.WrongParser;
-        }
-
-        parsed = i - offs;
-        if (wantValue)
-        {
-            value = fmtMode == FormatMode.AsString
-                ? JsonValue.Create(npb.Str.Substring(offs, parsed))
-                : JsonValue.Create(val);
-        }
-        return 0;
-    }
-
-    internal sealed class FloatData
-    {
-        public FormatMode FmtMode = FormatMode.AsString;
-    }
-
-    public static int ConstructFloat(LogNormContext ctx, JsonObject config, out object? pdata)
-    {
-        var data = new FloatData();
-        foreach ((var key, var val) in config)
-        {
-            if (key == "format")
-            {
-                var fmtmode = JsonText.GetLenientString(val) ?? string.Empty;
-                if (fmtmode == "number")
-                {
-                    data.FmtMode = FormatMode.AsNumber;
-                }
-                else if (fmtmode == "string")
-                {
-                    data.FmtMode = FormatMode.AsString;
-                }
-                else
-                {
-                    ctx.Error($"invalid value for float:format {fmtmode}");
-                }
-            }
-            else if (!IsDashName(key, val))
-            {
-                ctx.Error($"invalid param for float: {key}");
             }
         }
         pdata = data;
@@ -205,67 +188,6 @@ internal static class NumberParsers
     }
 
     /// <summary>
-    /// Whether text scanned by ParseFloat ("-?" + digits with at most one '.')
-    /// is a valid JSON number token: JSON forbids a bare sign, a missing
-    /// integer part, a trailing '.', and leading zeros ("00.5", "01").
-    /// </summary>
-    private static bool IsValidJsonNumber(ReadOnlySpan<char> raw)
-    {
-        var i = raw[0] == '-' ? 1 : 0;
-        if (i == raw.Length || raw[i] == '.')
-        {
-            return false;
-        }
-
-        if (raw[i] == '0' && i + 1 < raw.Length && raw[i + 1] != '.')
-        {
-            return false;
-        }
-
-        return raw[^1] != '.';
-    }
-
-    internal sealed class HexNumberData
-    {
-        public ulong MaxVal;
-        public FormatMode FmtMode = FormatMode.AsString;
-    }
-
-    public static int ConstructHexNumber(LogNormContext ctx, JsonObject config, out object? pdata)
-    {
-        var data = new HexNumberData();
-        foreach ((var key, var val) in config)
-        {
-            if (key == "maxval")
-            {
-                data.MaxVal = unchecked((ulong)JsonText.GetLenientInt64(val));
-            }
-            else if (key == "format")
-            {
-                var fmtmode = JsonText.GetLenientString(val) ?? string.Empty;
-                if (fmtmode == "number")
-                {
-                    data.FmtMode = FormatMode.AsNumber;
-                }
-                else if (fmtmode == "string")
-                {
-                    data.FmtMode = FormatMode.AsString;
-                }
-                else
-                {
-                    ctx.Error($"invalid value for hexnumber:format {fmtmode}");
-                }
-            }
-            else if (!IsDashName(key, val))
-            {
-                ctx.Error($"invalid param for hexnumber: {key}");
-            }
-        }
-        pdata = data;
-        return 0;
-    }
-
-    /// <summary>
     /// A hex number: "0x" followed by hex digits, terminated by whitespace
     /// (which is required; a hex number at end-of-line does not match).
     /// </summary>
@@ -305,5 +227,83 @@ internal static class NumberParsers
                 : JsonValue.Create(unchecked((long)val));
         }
         return 0;
+    }
+
+    /// <summary>A decimal digit run (always held as 64 bit internally).</summary>
+    public static int ParseNumber(Npb npb, ref int offs, object? pdata, string? parserName,
+        out int parsed, bool wantValue, ref JsonNode? value)
+    {
+        parsed = 0;
+        var data = (NumberData?)pdata;
+        var fmtMode = data?.FmtMode ?? FormatMode.AsString;
+        var maxval = data?.MaxVal ?? 0;
+
+        long val = 0;
+        int i;
+        for (i = offs; i < npb.StrLen && TextRules.IsDigit(npb.Str[i]); i++)
+        {
+            val = unchecked((val * 10) + npb.Str[i] - '0');
+        }
+
+        if (maxval > 0 && val > maxval)
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        if (i == offs)
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        parsed = i - offs;
+        if (wantValue)
+        {
+            value = fmtMode == FormatMode.AsString
+                ? JsonValue.Create(npb.Str.Substring(offs, parsed))
+                : JsonValue.Create(val);
+        }
+        return 0;
+    }
+
+    /// <summary>An unnamed field ("-") leaves a name key in the config; constructs must tolerate it.</summary>
+    internal static bool IsDashName(string key, JsonNode? val)
+        => key == "name" && JsonText.GetLenientString(val) == "-";
+
+    /// <summary>
+    /// Whether text scanned by ParseFloat ("-?" + digits with at most one '.')
+    /// is a valid JSON number token: JSON forbids a bare sign, a missing
+    /// integer part, a trailing '.', and leading zeros ("00.5", "01").
+    /// </summary>
+    private static bool IsValidJsonNumber(ReadOnlySpan<char> raw)
+    {
+        var i = raw[0] == '-' ? 1 : 0;
+        if (i == raw.Length || raw[i] == '.')
+        {
+            return false;
+        }
+
+        if (raw[i] == '0' && i + 1 < raw.Length && raw[i + 1] != '.')
+        {
+            return false;
+        }
+
+        return raw[^1] != '.';
+    }
+
+    internal sealed class FloatData
+    {
+        public FormatMode FmtMode = FormatMode.AsString;
+    }
+
+    internal sealed class HexNumberData
+    {
+        public FormatMode FmtMode = FormatMode.AsString;
+        public ulong MaxVal;
+    }
+
+    internal sealed class NumberData
+    {
+        public FormatMode FmtMode = FormatMode.AsString;
+        public long MaxVal;
     }
 }

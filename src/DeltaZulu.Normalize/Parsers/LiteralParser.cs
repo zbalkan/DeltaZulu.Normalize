@@ -11,10 +11,9 @@ namespace DeltaZulu.Normalize.Parsers;
 /// </summary>
 internal static class LiteralParser
 {
-    internal sealed class Data
-    {
-        public required string Lit { get; set; }
-    }
+    /// <summary>Combine two literal data blocks during path compaction.</summary>
+    public static void CombineData(object org, object add)
+        => ((Data)org).Lit += ((Data)add).Lit;
 
     public static int Construct(LogNormContext ctx, JsonObject config, out object? pdata)
     {
@@ -27,6 +26,8 @@ internal static class LiteralParser
         pdata = new Data { Lit = JsonText.GetLenientString(text)! };
         return 0;
     }
+
+    public static string DataForDisplay(object pdata) => ((Data)pdata).Lit;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int Parse(Npb npb, ref int offs, object? pdata, string? parserName,
@@ -62,9 +63,8 @@ internal static class LiteralParser
         return 0;
     }
 
-    /// <summary>Combine two literal data blocks during path compaction.</summary>
-    public static void CombineData(object org, object add)
-        => ((Data)org).Lit += ((Data)add).Lit;
-
-    public static string DataForDisplay(object pdata) => ((Data)pdata).Lit;
+    internal sealed class Data
+    {
+        public required string Lit { get; set; }
+    }
 }

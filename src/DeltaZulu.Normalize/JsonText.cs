@@ -11,6 +11,65 @@ namespace DeltaZulu.Normalize;
 internal static class JsonText
 {
     /// <summary>
+    /// Writer options producing output byte-identical to
+    /// <see cref="ToCompactString"/> (same escaping, no added whitespace),
+    /// for serializing straight from a <see cref="FieldCollector"/>.
+    /// </summary>
+    public static readonly JsonWriterOptions CompactWriterOptions = new() {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        SkipValidation = true,
+    };
+
+    public static readonly JsonSerializerOptions SerializerOptions = new() {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>
+    /// Read an integer the way json-c's json_object_get_int64 does: numbers
+    /// convert directly, but a JSON *string* is also accepted and parsed as
+    /// a number (rulebases sometimes quote numeric parameters, e.g.
+    /// "priority":"1000"). Unparseable or missing values yield 0, matching
+    /// json-c's lenient "return 0 on failure" behavior rather than throwing.
+    /// </summary>
+    public static long GetLenientInt64(JsonNode? node)
+    {
+        if (node is not JsonValue v)
+        {
+            return 0;
+        }
+
+        if (v.TryGetValue(out long l))
+        {
+            return l;
+        }
+
+        if (v.TryGetValue(out double d))
+        {
+            return (long)d;
+        }
+
+        if (v.TryGetValue(out string? s) && long.TryParse(s, out var parsed))
+        {
+            return parsed;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Read a string the way json-c's json_object_get_string does: a JSON
+    /// string passes through unchanged, but any other scalar (number, bool)
+    /// is coerced to its JSON text form instead of throwing. Returns null
+    /// only for a non-scalar node (object/array) or a missing value.
+    /// </summary>
+    public static string? GetLenientString(JsonNode? node)
+        => node is JsonValue v ? (v.TryGetValue(out string? s) ? s : v.ToJsonString()) : null;
+
+    /// <summary>Compact serialization (no added whitespace), like json-c's PLAIN mode.</summary>
+    public static string ToCompactString(JsonNode? node)
+        => node?.ToJsonString(SerializerOptions) ?? "null";
+
+    /// <summary>
     /// Try to parse one JSON object or array starting at <paramref name="offs"/>.
     /// On success returns the parsed node and the number of chars consumed,
     /// including any trailing whitespace (json-c treats whitespace after the
@@ -118,63 +177,4 @@ internal static class JsonText
 
         return false;
     }
-
-    /// <summary>Compact serialization (no added whitespace), like json-c's PLAIN mode.</summary>
-    public static string ToCompactString(JsonNode? node)
-        => node?.ToJsonString(SerializerOptions) ?? "null";
-
-    /// <summary>
-    /// Read an integer the way json-c's json_object_get_int64 does: numbers
-    /// convert directly, but a JSON *string* is also accepted and parsed as
-    /// a number (rulebases sometimes quote numeric parameters, e.g.
-    /// "priority":"1000"). Unparseable or missing values yield 0, matching
-    /// json-c's lenient "return 0 on failure" behavior rather than throwing.
-    /// </summary>
-    public static long GetLenientInt64(JsonNode? node)
-    {
-        if (node is not JsonValue v)
-        {
-            return 0;
-        }
-
-        if (v.TryGetValue(out long l))
-        {
-            return l;
-        }
-
-        if (v.TryGetValue(out double d))
-        {
-            return (long)d;
-        }
-
-        if (v.TryGetValue(out string? s) && long.TryParse(s, out var parsed))
-        {
-            return parsed;
-        }
-
-        return 0;
-    }
-
-    /// <summary>
-    /// Read a string the way json-c's json_object_get_string does: a JSON
-    /// string passes through unchanged, but any other scalar (number, bool)
-    /// is coerced to its JSON text form instead of throwing. Returns null
-    /// only for a non-scalar node (object/array) or a missing value.
-    /// </summary>
-    public static string? GetLenientString(JsonNode? node)
-        => node is JsonValue v ? (v.TryGetValue(out string? s) ? s : v.ToJsonString()) : null;
-
-    public static readonly JsonSerializerOptions SerializerOptions = new() {
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
-    /// <summary>
-    /// Writer options producing output byte-identical to
-    /// <see cref="ToCompactString"/> (same escaping, no added whitespace),
-    /// for serializing straight from a <see cref="FieldCollector"/>.
-    /// </summary>
-    public static readonly JsonWriterOptions CompactWriterOptions = new() {
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        SkipValidation = true,
-    };
 }

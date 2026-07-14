@@ -4,30 +4,6 @@ namespace DeltaZulu.Normalize.Tests;
 
 internal static class TestHelpers
 {
-    /// <summary>Build a context from rulebase body text (without the "version=2" header) and normalize one message.</summary>
-    public static (int Result, JsonObject Json) Normalize(string rulebaseBody, string message, LogNormOptions options = LogNormOptions.None)
-    {
-        var ctx = new LogNormContext { Options = options };
-        var errors = new List<string>();
-        ctx.ErrorCallback = errors.Add;
-        var loadResult = ctx.LoadSamplesFromString(rulebaseBody);
-        Assert.AreEqual(0, loadResult, $"rulebase failed to load: {string.Join("; ", errors)}");
-
-        var r = ctx.Normalize(message, out JsonObject json);
-        return (r, json);
-    }
-
-    /// <summary>Assert that the normalized JSON output equals the expected JSON (order-independent).</summary>
-    public static void AssertJsonEquals(string expectedJson, JsonNode? actual)
-    {
-        var expected = JsonNode.Parse(expectedJson);
-        var equal = JsonNode.DeepEquals(Normalize(expected), Normalize(actual));
-        if (!equal)
-        {
-            Assert.Fail($"JSON mismatch.\nExpected: {expected?.ToJsonString()}\nActual:   {actual?.ToJsonString()}");
-        }
-    }
-
     public static void AssertJsonContains(JsonNode? json, string fieldName, string expectedValue)
     {
         if (json is not JsonObject)
@@ -65,6 +41,30 @@ internal static class TestHelpers
                 Assert.Fail($"Field '{fieldName}' mismatch.\nExpected: {expectedValue}\nActual:   {actualValue}");
             }
         }
+    }
+
+    /// <summary>Assert that the normalized JSON output equals the expected JSON (order-independent).</summary>
+    public static void AssertJsonEquals(string expectedJson, JsonNode? actual)
+    {
+        var expected = JsonNode.Parse(expectedJson);
+        var equal = JsonNode.DeepEquals(Normalize(expected), Normalize(actual));
+        if (!equal)
+        {
+            Assert.Fail($"JSON mismatch.\nExpected: {expected?.ToJsonString()}\nActual:   {actual?.ToJsonString()}");
+        }
+    }
+
+    /// <summary>Build a context from rulebase body text (without the "version=2" header) and normalize one message.</summary>
+    public static (int Result, JsonObject Json) Normalize(string rulebaseBody, string message, LogNormOptions options = LogNormOptions.None)
+    {
+        var ctx = new LogNormContext { Options = options };
+        var errors = new List<string>();
+        ctx.ErrorCallback = errors.Add;
+        var loadResult = ctx.LoadSamplesFromString(rulebaseBody);
+        Assert.AreEqual(0, loadResult, $"rulebase failed to load: {string.Join("; ", errors)}");
+
+        var r = ctx.Normalize(message, out JsonObject json);
+        return (r, json);
     }
 
     /// <summary>Recursively sort object keys so DeepEquals is order-independent.</summary>

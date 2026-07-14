@@ -31,38 +31,20 @@ public sealed class NormalizeResult
         _fields = fields;
     }
 
-    /// <summary>The normalization status code: 0 on a match, non-zero otherwise (C-compatible).</summary>
-    public int Status { get; }
+    /// <summary>Number of extracted fields.</summary>
+    public int Count => _fields.Count;
 
     /// <summary>Whether the message matched a rule. On failure the fields
     /// hold "originalmsg" and "unparsed-data", exactly like the C library.</summary>
     public bool Matched => Status == 0;
 
-    /// <summary>Number of extracted fields.</summary>
-    public int Count => _fields.Count;
-
-    /// <summary>Name of the field at <paramref name="index"/> (in commit order).</summary>
-    public string GetName(int index) => _fields.NameAt(index);
+    /// <summary>The normalization status code: 0 on a match, non-zero otherwise (C-compatible).</summary>
+    public int Status { get; }
 
     public bool Contains(string name) => _fields.Contains(name);
 
-    /// <summary>
-    /// Get a field's raw text without allocating, when the value is a plain
-    /// slice of the input message. Returns false for absent fields and for
-    /// structured/converted values (numbers, sub-objects, ...).
-    /// </summary>
-    public bool TryGetRawText(string name, out ReadOnlyMemory<char> text)
-    {
-        var i = _fields.IndexOf(name);
-        if (i >= 0 && _fields.ValueAt(i) is { Kind: FieldValueKind.Span } value)
-        {
-            text = value.Memory;
-            return true;
-        }
-
-        text = default;
-        return false;
-    }
+    /// <summary>Name of the field at <paramref name="index"/> (in commit order).</summary>
+    public string GetName(int index) => _fields.NameAt(index);
 
     /// <summary>Materialize a single field as a <see cref="JsonNode"/>; null if absent (or a JSON null).</summary>
     public JsonNode? GetValue(string name)
@@ -82,18 +64,6 @@ public sealed class NormalizeResult
     /// </summary>
     public JsonObject ToJsonObject() => _materialized ??= _fields.ToJsonObject();
 
-    /// <summary>Serialize the result, writing slice-backed values straight from the input message.</summary>
-    public void WriteTo(Utf8JsonWriter writer)
-    {
-        if (_materialized is not null)
-        {
-            _materialized.WriteTo(writer);
-            return;
-        }
-
-        _fields.WriteTo(writer);
-    }
-
     /// <summary>Compact JSON text (same format as <see cref="LogNormContext.NormalizeToString"/>).</summary>
     public string ToJsonString()
     {
@@ -104,5 +74,35 @@ public sealed class NormalizeResult
         }
 
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    /// <summary>
+    /// Get a field's raw text without allocating, when the value is a plain
+    /// slice of the input message. Returns false for absent fields and for
+    /// structured/converted values (numbers, sub-objects, ...).
+    /// </summary>
+    public bool TryGetRawText(string name, out ReadOnlyMemory<char> text)
+    {
+        var i = _fields.IndexOf(name);
+        if (i >= 0 && _fields.ValueAt(i) is { Kind: FieldValueKind.Span } value)
+        {
+            text = value.Memory;
+            return true;
+        }
+
+        text = default;
+        return false;
+    }
+
+    /// <summary>Serialize the result, writing slice-backed values straight from the input message.</summary>
+    public void WriteTo(Utf8JsonWriter writer)
+    {
+        if (_materialized is not null)
+        {
+            _materialized.WriteTo(writer);
+            return;
+        }
+
+        _fields.WriteTo(writer);
     }
 }

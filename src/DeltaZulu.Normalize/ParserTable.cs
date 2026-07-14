@@ -4,6 +4,12 @@ using DeltaZulu.Normalize.Parsers;
 namespace DeltaZulu.Normalize;
 
 /// <summary>
+/// Builds parser-specific data from the (already reduced) JSON config of a
+/// field. Returns 0 on success, <see cref="ErrorCodes.BadConfig"/> otherwise.
+/// </summary>
+internal delegate int ConstructFunc(LogNormContext ctx, JsonObject config, out object? pdata);
+
+/// <summary>
 /// Parse function of a motif parser.
 /// </summary>
 /// <param name="npb">the normalization parameter block (message + state)</param>
@@ -19,23 +25,18 @@ internal delegate int ParseFunc(
     Npb npb, ref int offs, object? pdata, string? parserName,
     out int parsed, bool wantValue, ref JsonNode? value);
 
-/// <summary>
-/// Builds parser-specific data from the (already reduced) JSON config of a
-/// field. Returns 0 on success, <see cref="ErrorCodes.BadConfig"/> otherwise.
-/// </summary>
-internal delegate int ConstructFunc(LogNormContext ctx, JsonObject config, out object? pdata);
-
 /// <summary>Static description of one motif parser type.</summary>
 internal sealed class ParserInfo
 {
+    public ConstructFunc? Construct { get; init; }
+
     /// <summary>Parser name as used in the rulebase.</summary>
     public required string Name { get; init; }
 
+    public required ParseFunc Parse { get; init; }
+
     /// <summary>Parser-specific priority (0 = highest .. 255 = lowest / last resort).</summary>
     public int Priority { get; init; }
-
-    public ConstructFunc? Construct { get; init; }
-    public required ParseFunc Parse { get; init; }
 }
 
 /// <summary>
@@ -45,16 +46,17 @@ internal sealed class ParserInfo
 /// </summary>
 internal static class ParserTable
 {
-    public const byte LiteralId = 0;
-    public const byte RepeatId = 1;
     public const byte CustomTypeId = 254;
-    public const byte InvalidId = 255;
+
+    /// <summary>Priority used for user-defined (custom) types.</summary>
+    public const int CustomTypePriority = 16;
 
     /// <summary>Default user priority when a rule does not assign one.</summary>
     public const int DefaultUserPriority = 30000;
 
-    /// <summary>Priority used for user-defined (custom) types.</summary>
-    public const int CustomTypePriority = 16;
+    public const byte InvalidId = 255;
+    public const byte LiteralId = 0;
+    public const byte RepeatId = 1;
 
     public static readonly ParserInfo[] Parsers =
     {
@@ -91,6 +93,9 @@ internal static class ParserTable
         new() { Name = "char-sep", Priority = 32, Construct = CoreParsers.ConstructCharSeparated, Parse = CoreParsers.ParseCharSeparated },
         new() { Name = "string", Priority = 32, Construct = StringParser.Construct, Parse = StringParser.Parse },
     };
+
+    /// <summary>Number of switch cases in <see cref="Dispatch"/> (test guard).</summary>
+    internal const int DispatchCaseCount = 32;
 
     /// <summary>
     /// Hot-path dispatch: a switch over the parser ID compiles to a jump
@@ -142,8 +147,8 @@ internal static class ParserTable
         }
     }
 
-    /// <summary>Number of switch cases in <see cref="Dispatch"/> (test guard).</summary>
-    internal const int DispatchCaseCount = 32;
+    public static string IdToName(byte id)
+        => id == CustomTypeId ? "USER-DEFINED" : Parsers[id].Name;
 
     public static byte NameToId(string name)
     {
@@ -156,7 +161,4 @@ internal static class ParserTable
         }
         return InvalidId;
     }
-
-    public static string IdToName(byte id)
-        => id == CustomTypeId ? "USER-DEFINED" : Parsers[id].Name;
 }

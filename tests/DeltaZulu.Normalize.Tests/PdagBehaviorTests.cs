@@ -12,17 +12,127 @@ namespace DeltaZulu.Normalize.Tests;
 [TestClass]
 public class PdagBehaviorTests
 {
+    public required TestContext TestContext { get; set; }
+
     [TestMethod]
-    public void Repeat_CollectsSingleFieldPerIteration()
+    public void AddRuleOption_AttachesMockupRuleMetadata()
+    {
+        var (r, j) = TestHelpers.Normalize("rule=:hello %name:word%", "hello world", LogNormOptions.AddRule);
+        Assert.AreEqual(0, r);
+        Assert.AreEqual("hello %name:word%", j["metadata"]!["rule"]!["mockup"]!.GetValue<string>());
+    }
+
+    [TestMethod]
+    public void Alternative_TriesEachBranchInOrder()
     {
         const string rb = """
-            rule=:a %{"name":"numbers", "type":"repeat", "parser": {"name":"n", "type":"number"}, "while": {"type":"literal", "text":", "} }% b %w:word%
+            rule=:a %{"type":"alternative", "parser":[{"name":"num", "type":"number"}, {"name":"hex", "type":"hexnumber"}]}% b
             """;
-        var (r, j) = TestHelpers.Normalize(rb, "a 1, 2, 3, 4 b test");
+        AssertJsonEquals("""{ "num": "4711" }""", TestHelpers.Normalize(rb, "a 4711 b").Json);
+        AssertJsonEquals("""{ "hex": "0x4711" }""", TestHelpers.Normalize(rb, "a 0x4711 b").Json);
+    }
+
+    [TestMethod]
+    public void Annotate_AddsStaticFieldsPerTag()
+    {
+        const string rb = """
+            rule=ABC,WIN:<%-:number%>1 %-:date-rfc5424% %-:word% %tag:word% - - -
+            rule=ABC:<%-:number%>1 %-:date-rfc5424% %-:word% %tag:word% + - -
+            rule=WIN:<%-:number%>1 %-:date-rfc5424% %-:word% %tag:word% . - -
+            annotate=WIN:+annot1="WIN" # inline-comment
+            annotate=ABC:+annot2="ABC"
+            """;
+        /* note: ln_normalize() always adds "event.tags" for a tagged rule match
+         * (the reference lognormalizer CLI strips it by default; -T re-enables it
+         * — since we're testing the library API directly, it is always present). */
+        AssertJsonEquals("""{ "tag": "TAG", "event.tags": ["WIN"], "annot1": "WIN" }""",
+            TestHelpers.Normalize(rb, "<37>1 2016-11-03T23:59:59+03:00 server.example.net TAG . - -").Json);
+        AssertJsonEquals("""{ "tag": "TAG", "event.tags": ["ABC"], "annot2": "ABC" }""",
+            TestHelpers.Normalize(rb, "<37>1 2016-11-03T23:59:59+03:00 server.example.net TAG + - -").Json);
+        AssertJsonEquals("""{ "tag": "TAG", "event.tags": ["ABC", "WIN"], "annot1": "WIN", "annot2": "ABC" }""",
+            TestHelpers.Normalize(rb, "<6>1 2016-09-02T07:41:07+02:00 server.example.net TAG - - -").Json);
+    }
+
+    [TestMethod]
+    public void Backtracking_PicksMostSpecificMatchingRuleAmongSharedPrefix()
+    {
+        const string rb = """
+            rule=:%iface:char-to:\x3a%\x3a%ip:ipv4%/%port:number% (%label2:char-to:)%)
+            rule=:%iface:char-to:\x3a%\x3a%ip:ipv4%/%port:number% (%label2:char-to:)%)%tail:rest%
+            rule=:%iface:char-to:\x3a%\x3a%ip:ipv4%/%port:number%
+            rule=:%iface:char-to:\x3a%\x3a%ip:ipv4%/%port:number%%tail:rest%
+            """;
+        /* note: the "no-tail" rule and its "with-tail" sibling share a DAG node; since
+         * "rest" always matches (even zero bytes), it takes priority over stopping at
+         * this node's own terminal status, so "tail":"" is genuinely present here — the
+         * upstream shell test's assert_output_json_eq only checks a subset of fields,
+         * which is why its fixture omits it (verified against the C reference binary). */
+        AssertJsonEquals(
+            """{ "tail": "", "label2": "40.30.20.10/35", "port": "35", "ip": "10.20.30.40", "iface": "Outside" }""",
+            TestHelpers.Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35)").Json);
+
+        AssertJsonEquals(
+            """{ "tail": " with rest", "label2": "40.30.20.10/35", "port": "35", "ip": "10.20.30.40", "iface": "Outside" }""",
+            TestHelpers.Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35) with rest").Json);
+
+        AssertJsonEquals(
+            """{ "tail": " (40.30.20.10/35 brace missing", "port": "35", "ip": "10.20.30.40", "iface": "Outside" }""",
+            TestHelpers.Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35 brace missing").Json);
+
+        var (r, j) = TestHelpers.Normalize(rb, "Outside:10.20.30.40/aa 40.30.20.10/35");
+        Assert.AreNotEqual(0, r);
+        AssertJsonEquals("""
+            { "originalmsg": "Outside:10.20.30.40/aa 40.30.20.10/35", "unparsed-data": "aa 40.30.20.10/35" }
+            """, j);
+    }
+
+    [TestMethod]
+    public void CustomType_DotDotNamePushesValueUpToCallSite()
+    {
+        const string rb = """
+            type=@IPaddr:%..:ipv4%
+            type=@IPaddr:%..:ipv6%
+            rule=:an ip address %ip:@IPaddr%
+            """;
+        AssertJsonEquals("""{ "ip": "10.0.0.1" }""", TestHelpers.Normalize(rb, "an ip address 10.0.0.1").Json);
+        AssertJsonEquals("""{ "ip": "127::1" }""", TestHelpers.Normalize(rb, "an ip address 127::1").Json);
+    }
+
+    [TestMethod]
+    public void CustomType_NamedFieldInsideTypeDefinition()
+    {
+        const string rb = """
+            type=@IPaddr:%ip:ipv4%
+            type=@IPaddr:%ip:ipv6%
+            rule=:an ip address %.:@IPaddr%
+            """;
+        AssertJsonEquals("""{ "ip": "10.0.0.1" }""", TestHelpers.Normalize(rb, "an ip address 10.0.0.1").Json);
+        AssertJsonEquals("""{ "ip": "127::1" }""", TestHelpers.Normalize(rb, "an ip address 127::1").Json);
+        AssertJsonEquals("""{ "ip": "2001:DB8:0:1::10:1FF" }""",
+            TestHelpers.Normalize(rb, "an ip address 2001:DB8:0:1::10:1FF").Json);
+    }
+
+    [TestMethod]
+    public void Prefix_LineIsPrependedToEveryRule()
+    {
+        const string rb = "prefix=%timestamp:date-rfc3164% %hostname:word% \n" +
+                    "rule=:hello %name:word%";
+        var (r, j) = TestHelpers.Normalize(rb, "Aug 18 13:18:45 myhost hello world");
         Assert.AreEqual(0, r);
         AssertJsonEquals("""
-            { "w": "test", "numbers": [ { "n": "1" }, { "n": "2" }, { "n": "3" }, { "n": "4" } ] }
+            { "timestamp": "Aug 18 13:18:45", "hostname": "myhost", "name": "world" }
             """, j);
+    }
+
+    [TestMethod]
+    public void PrefixRules_ShorterRuleStillMatchesWhenLongerOneFails()
+    {
+        const string rb = """
+            rule=:a word %w1:word%
+            rule=:a word %w1:word% another word %w2:word%
+            """;
+        AssertJsonEquals("""{ "w2": "w2", "w1": "w1" }""", TestHelpers.Normalize(rb, "a word w1 another word w2").Json);
+        AssertJsonEquals("""{ "w1": "w1" }""", TestHelpers.Normalize(rb, "a word w1").Json);
     }
 
     [TestMethod]
@@ -39,6 +149,19 @@ public class PdagBehaviorTests
         AssertJsonEquals("""
             { "w": "test", "numbers": [ { "n2": "2", "n1": "1" }, { "n2": "4", "n1": "3" },
                                          { "n2": "6", "n1": "5" }, { "n2": "8", "n1": "7" } ] }
+            """, j);
+    }
+
+    [TestMethod]
+    public void Repeat_CollectsSingleFieldPerIteration()
+    {
+        const string rb = """
+            rule=:a %{"name":"numbers", "type":"repeat", "parser": {"name":"n", "type":"number"}, "while": {"type":"literal", "text":", "} }% b %w:word%
+            """;
+        var (r, j) = TestHelpers.Normalize(rb, "a 1, 2, 3, 4 b test");
+        Assert.AreEqual(0, r);
+        AssertJsonEquals("""
+            { "w": "test", "numbers": [ { "n": "1" }, { "n": "2" }, { "n": "3" }, { "n": "4" } ] }
             """, j);
     }
 
@@ -87,127 +210,4 @@ public class PdagBehaviorTests
         var task = System.Threading.Tasks.Task.Run(() => TestHelpers.Normalize(rb, "a ,b"));
         Assert.IsTrue(task.Wait(System.TimeSpan.FromSeconds(5), TestContext.CancellationToken), "repeat parser hung instead of terminating");
     }
-
-    [TestMethod]
-    public void Alternative_TriesEachBranchInOrder()
-    {
-        const string rb = """
-            rule=:a %{"type":"alternative", "parser":[{"name":"num", "type":"number"}, {"name":"hex", "type":"hexnumber"}]}% b
-            """;
-        AssertJsonEquals("""{ "num": "4711" }""", TestHelpers.Normalize(rb, "a 4711 b").Json);
-        AssertJsonEquals("""{ "hex": "0x4711" }""", TestHelpers.Normalize(rb, "a 0x4711 b").Json);
-    }
-
-    [TestMethod]
-    public void CustomType_NamedFieldInsideTypeDefinition()
-    {
-        const string rb = """
-            type=@IPaddr:%ip:ipv4%
-            type=@IPaddr:%ip:ipv6%
-            rule=:an ip address %.:@IPaddr%
-            """;
-        AssertJsonEquals("""{ "ip": "10.0.0.1" }""", TestHelpers.Normalize(rb, "an ip address 10.0.0.1").Json);
-        AssertJsonEquals("""{ "ip": "127::1" }""", TestHelpers.Normalize(rb, "an ip address 127::1").Json);
-        AssertJsonEquals("""{ "ip": "2001:DB8:0:1::10:1FF" }""",
-            TestHelpers.Normalize(rb, "an ip address 2001:DB8:0:1::10:1FF").Json);
-    }
-
-    [TestMethod]
-    public void CustomType_DotDotNamePushesValueUpToCallSite()
-    {
-        const string rb = """
-            type=@IPaddr:%..:ipv4%
-            type=@IPaddr:%..:ipv6%
-            rule=:an ip address %ip:@IPaddr%
-            """;
-        AssertJsonEquals("""{ "ip": "10.0.0.1" }""", TestHelpers.Normalize(rb, "an ip address 10.0.0.1").Json);
-        AssertJsonEquals("""{ "ip": "127::1" }""", TestHelpers.Normalize(rb, "an ip address 127::1").Json);
-    }
-
-    [TestMethod]
-    public void Annotate_AddsStaticFieldsPerTag()
-    {
-        const string rb = """
-            rule=ABC,WIN:<%-:number%>1 %-:date-rfc5424% %-:word% %tag:word% - - -
-            rule=ABC:<%-:number%>1 %-:date-rfc5424% %-:word% %tag:word% + - -
-            rule=WIN:<%-:number%>1 %-:date-rfc5424% %-:word% %tag:word% . - -
-            annotate=WIN:+annot1="WIN" # inline-comment
-            annotate=ABC:+annot2="ABC"
-            """;
-        /* note: ln_normalize() always adds "event.tags" for a tagged rule match
-         * (the reference lognormalizer CLI strips it by default; -T re-enables it
-         * — since we're testing the library API directly, it is always present). */
-        AssertJsonEquals("""{ "tag": "TAG", "event.tags": ["WIN"], "annot1": "WIN" }""",
-            TestHelpers.Normalize(rb, "<37>1 2016-11-03T23:59:59+03:00 server.example.net TAG . - -").Json);
-        AssertJsonEquals("""{ "tag": "TAG", "event.tags": ["ABC"], "annot2": "ABC" }""",
-            TestHelpers.Normalize(rb, "<37>1 2016-11-03T23:59:59+03:00 server.example.net TAG + - -").Json);
-        AssertJsonEquals("""{ "tag": "TAG", "event.tags": ["ABC", "WIN"], "annot1": "WIN", "annot2": "ABC" }""",
-            TestHelpers.Normalize(rb, "<6>1 2016-09-02T07:41:07+02:00 server.example.net TAG - - -").Json);
-    }
-
-    [TestMethod]
-    public void PrefixRules_ShorterRuleStillMatchesWhenLongerOneFails()
-    {
-        const string rb = """
-            rule=:a word %w1:word%
-            rule=:a word %w1:word% another word %w2:word%
-            """;
-        AssertJsonEquals("""{ "w2": "w2", "w1": "w1" }""", TestHelpers.Normalize(rb, "a word w1 another word w2").Json);
-        AssertJsonEquals("""{ "w1": "w1" }""", TestHelpers.Normalize(rb, "a word w1").Json);
-    }
-
-    [TestMethod]
-    public void Backtracking_PicksMostSpecificMatchingRuleAmongSharedPrefix()
-    {
-        const string rb = """
-            rule=:%iface:char-to:\x3a%\x3a%ip:ipv4%/%port:number% (%label2:char-to:)%)
-            rule=:%iface:char-to:\x3a%\x3a%ip:ipv4%/%port:number% (%label2:char-to:)%)%tail:rest%
-            rule=:%iface:char-to:\x3a%\x3a%ip:ipv4%/%port:number%
-            rule=:%iface:char-to:\x3a%\x3a%ip:ipv4%/%port:number%%tail:rest%
-            """;
-        /* note: the "no-tail" rule and its "with-tail" sibling share a DAG node; since
-         * "rest" always matches (even zero bytes), it takes priority over stopping at
-         * this node's own terminal status, so "tail":"" is genuinely present here — the
-         * upstream shell test's assert_output_json_eq only checks a subset of fields,
-         * which is why its fixture omits it (verified against the C reference binary). */
-        AssertJsonEquals(
-            """{ "tail": "", "label2": "40.30.20.10/35", "port": "35", "ip": "10.20.30.40", "iface": "Outside" }""",
-            TestHelpers.Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35)").Json);
-
-        AssertJsonEquals(
-            """{ "tail": " with rest", "label2": "40.30.20.10/35", "port": "35", "ip": "10.20.30.40", "iface": "Outside" }""",
-            TestHelpers.Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35) with rest").Json);
-
-        AssertJsonEquals(
-            """{ "tail": " (40.30.20.10/35 brace missing", "port": "35", "ip": "10.20.30.40", "iface": "Outside" }""",
-            TestHelpers.Normalize(rb, "Outside:10.20.30.40/35 (40.30.20.10/35 brace missing").Json);
-
-        var (r, j) = TestHelpers.Normalize(rb, "Outside:10.20.30.40/aa 40.30.20.10/35");
-        Assert.AreNotEqual(0, r);
-        AssertJsonEquals("""
-            { "originalmsg": "Outside:10.20.30.40/aa 40.30.20.10/35", "unparsed-data": "aa 40.30.20.10/35" }
-            """, j);
-    }
-
-    [TestMethod]
-    public void Prefix_LineIsPrependedToEveryRule()
-    {
-        const string rb = "prefix=%timestamp:date-rfc3164% %hostname:word% \n" +
-                    "rule=:hello %name:word%";
-        var (r, j) = TestHelpers.Normalize(rb, "Aug 18 13:18:45 myhost hello world");
-        Assert.AreEqual(0, r);
-        AssertJsonEquals("""
-            { "timestamp": "Aug 18 13:18:45", "hostname": "myhost", "name": "world" }
-            """, j);
-    }
-
-    [TestMethod]
-    public void AddRuleOption_AttachesMockupRuleMetadata()
-    {
-        var (r, j) = TestHelpers.Normalize("rule=:hello %name:word%", "hello world", LogNormOptions.AddRule);
-        Assert.AreEqual(0, r);
-        Assert.AreEqual("hello %name:word%", j["metadata"]!["rule"]!["mockup"]!.GetValue<string>());
-    }
-
-    public TestContext TestContext { get; set; }
 }

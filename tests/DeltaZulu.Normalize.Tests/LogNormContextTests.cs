@@ -6,43 +6,7 @@ namespace DeltaZulu.Normalize.Tests;
 [TestClass]
 public class LogNormContextTests
 {
-    [TestMethod]
-    public void LoadSamplesFromString_TwiceOnSameContext_BothRuleSetsMatch()
-    {
-        /* the second rule shares a literal prefix ("ab") with the first; the
-         * PDAG must not compact literal paths until all loads are done, else
-         * the second load's rule attaches after the first rule's compacted
-         * "abc" chunk instead of after "ab" and never matches */
-        var ctx = new LogNormContext();
-        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:abc %f:rest%"));
-        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:abd %f:rest%"));
-
-        Assert.AreEqual(0, ctx.Normalize("abc hello", out JsonObject j1));
-        Assert.AreEqual("hello", j1["f"]!.GetValue<string>());
-
-        Assert.AreEqual(0, ctx.Normalize("abd world", out JsonObject j2));
-        Assert.AreEqual("world", j2["f"]!.GetValue<string>());
-    }
-
-    [TestMethod]
-    public void LoadSamplesFromString_AfterNormalize_HotReloads()
-    {
-        /* loading after first use recompiles the snapshot: old rules keep
-         * matching (incl. the shared "ab" literal prefix, which must merge
-         * with the earlier rule's path, not with its compacted form) and the
-         * new rule becomes visible */
-        var ctx = new LogNormContext();
-        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:abc %f:rest%"));
-        Assert.AreEqual(0, ctx.Normalize("abc hello", out JsonObject j1));
-        Assert.AreEqual("hello", j1["f"]!.GetValue<string>());
-
-        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:abd %f:rest%"));
-
-        Assert.AreEqual(0, ctx.Normalize("abd world", out JsonObject j2));
-        Assert.AreEqual("world", j2["f"]!.GetValue<string>());
-        Assert.AreEqual(0, ctx.Normalize("abc again", out JsonObject j3));
-        Assert.AreEqual("again", j3["f"]!.GetValue<string>());
-    }
+    public required TestContext TestContext { get; set; }
 
     [TestMethod]
     public void HotReload_ConcurrentWithNormalization_IsSafe()
@@ -96,5 +60,41 @@ public class LogNormContextTests
         Assert.AreEqual("0:00:42", j["field"]!.GetValue<string>());
     }
 
-    public TestContext TestContext { get; set; }
+    [TestMethod]
+    public void LoadSamplesFromString_AfterNormalize_HotReloads()
+    {
+        /* loading after first use recompiles the snapshot: old rules keep
+         * matching (incl. the shared "ab" literal prefix, which must merge
+         * with the earlier rule's path, not with its compacted form) and the
+         * new rule becomes visible */
+        var ctx = new LogNormContext();
+        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:abc %f:rest%"));
+        Assert.AreEqual(0, ctx.Normalize("abc hello", out JsonObject j1));
+        Assert.AreEqual("hello", j1["f"]!.GetValue<string>());
+
+        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:abd %f:rest%"));
+
+        Assert.AreEqual(0, ctx.Normalize("abd world", out JsonObject j2));
+        Assert.AreEqual("world", j2["f"]!.GetValue<string>());
+        Assert.AreEqual(0, ctx.Normalize("abc again", out JsonObject j3));
+        Assert.AreEqual("again", j3["f"]!.GetValue<string>());
+    }
+
+    [TestMethod]
+    public void LoadSamplesFromString_TwiceOnSameContext_BothRuleSetsMatch()
+    {
+        /* the second rule shares a literal prefix ("ab") with the first; the
+         * PDAG must not compact literal paths until all loads are done, else
+         * the second load's rule attaches after the first rule's compacted
+         * "abc" chunk instead of after "ab" and never matches */
+        var ctx = new LogNormContext();
+        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:abc %f:rest%"));
+        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:abd %f:rest%"));
+
+        Assert.AreEqual(0, ctx.Normalize("abc hello", out JsonObject j1));
+        Assert.AreEqual("hello", j1["f"]!.GetValue<string>());
+
+        Assert.AreEqual(0, ctx.Normalize("abd world", out JsonObject j2));
+        Assert.AreEqual("world", j2["f"]!.GetValue<string>());
+    }
 }

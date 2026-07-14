@@ -1,5 +1,5 @@
-using System.Text.Json.Nodes;
 using System.Collections.Concurrent;
+using System.Text.Json.Nodes;
 using BenchmarkDotNet.Attributes;
 
 namespace DeltaZulu.Normalize.Benchmarks;
@@ -14,15 +14,30 @@ namespace DeltaZulu.Normalize.Benchmarks;
 [SimpleJob(warmupCount: 3, iterationCount: 10)]
 public class NormalizationBenchmarks
 {
-    private LogNormContext _trieCtx = null!;
-    private LogNormContext _backtrackCtx = null!;
-    private LogNormContext _structuredCtx = null!;
+    private static readonly System.Text.Json.JsonSerializerOptions ClassicSerializerOptions = new() {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
-    private string[] _trieMatch = null!;
-    private string[] _trieNoMatch = null!;
+    private LogNormContext _backtrackCtx = null!;
     private string[] _backtrackMatch = null!;
     private string[] _backtrackNoMatch = null!;
+    private LogNormContext _structuredCtx = null!;
     private string[] _structuredMatch = null!;
+    private LogNormContext _trieCtx = null!;
+    private string[] _trieMatch = null!;
+    private string[] _trieNoMatch = null!;
+
+    [Benchmark(OperationsPerInvoke = 3)]
+    public int MatchBacktrack() => RunAll(_backtrackCtx, _backtrackMatch);
+
+    [Benchmark(OperationsPerInvoke = 29)] /* 29 matching messages generated for 200 rules */
+    public int MatchFast() => RunAll(_trieCtx, _trieMatch);
+
+    [Benchmark(OperationsPerInvoke = 3)]
+    public int NoMatchBacktrack() => RunAll(_backtrackCtx, _backtrackNoMatch);
+
+    [Benchmark(OperationsPerInvoke = 3)]
+    public int NoMatchTrie() => RunAll(_trieCtx, _trieNoMatch);
 
     [GlobalSetup]
     public void Setup()
@@ -39,6 +54,52 @@ public class NormalizationBenchmarks
         AssertAll(_backtrackCtx, _backtrackMatch, shouldMatch: true);
         AssertAll(_backtrackCtx, _backtrackNoMatch, shouldMatch: false);
         AssertAll(_structuredCtx, _structuredMatch, shouldMatch: true);
+    }
+
+    [Benchmark(OperationsPerInvoke = 4)]
+    public int Structured() => RunAll(_structuredCtx, _structuredMatch);
+
+    /// <summary>
+    /// What NormalizeToString cost before it was rewritten over the flat
+    /// result (materialize a JsonObject, then serialize it) — the reference
+    /// point StructuredToJsonText must beat to justify running the walk
+    /// through the flat path at all when the caller wants text.
+    /// </summary>
+    [Benchmark(OperationsPerInvoke = 4)]
+    public int StructuredClassicToJsonText()
+    {
+        var r = 0;
+        foreach (var msg in _structuredMatch)
+        {
+            r += _structuredCtx.Normalize(msg, out JsonObject json);
+            _ = json.ToJsonString(ClassicSerializerOptions);
+        }
+
+        return r;
+    }
+
+    [Benchmark(OperationsPerInvoke = 4)]
+    public int StructuredFlatOnly()
+    {
+        var r = 0;
+        foreach (var msg in _structuredMatch)
+        {
+            r += _structuredCtx.Normalize(msg, out NormalizeResult _);
+        }
+
+        return r;
+    }
+
+    [Benchmark(OperationsPerInvoke = 4)]
+    public int StructuredToJsonText()
+    {
+        var r = 0;
+        foreach (var msg in _structuredMatch)
+        {
+            r += _structuredCtx.NormalizeToString(msg, out _);
+        }
+
+        return r;
     }
 
     private static void AssertAll(LogNormContext ctx, string[] messages, bool shouldMatch)
@@ -78,72 +139,10 @@ public class NormalizationBenchmarks
         return r;
     }
 
-    [Benchmark(OperationsPerInvoke = 29)] /* 29 matching messages generated for 200 rules */
-    public int MatchFast() => RunAll(_trieCtx, _trieMatch);
-
-    [Benchmark(OperationsPerInvoke = 3)]
-    public int MatchBacktrack() => RunAll(_backtrackCtx, _backtrackMatch);
-
-    [Benchmark(OperationsPerInvoke = 3)]
-    public int NoMatchTrie() => RunAll(_trieCtx, _trieNoMatch);
-
-    [Benchmark(OperationsPerInvoke = 3)]
-    public int NoMatchBacktrack() => RunAll(_backtrackCtx, _backtrackNoMatch);
-
-    [Benchmark(OperationsPerInvoke = 4)]
-    public int Structured() => RunAll(_structuredCtx, _structuredMatch);
-
     /* flat-result variants of Structured: no JsonObject is ever built */
-
-    [Benchmark(OperationsPerInvoke = 4)]
-    public int StructuredFlatOnly()
-    {
-        var r = 0;
-        foreach (var msg in _structuredMatch)
-        {
-            r += _structuredCtx.Normalize(msg, out NormalizeResult _);
-        }
-
-        return r;
-    }
-
-    [Benchmark(OperationsPerInvoke = 4)]
-    public int StructuredToJsonText()
-    {
-        var r = 0;
-        foreach (var msg in _structuredMatch)
-        {
-            r += _structuredCtx.NormalizeToString(msg, out _);
-        }
-
-        return r;
-    }
-
     /* mirrors the library's internal JsonText.SerializerOptions (not visible
      * across the assembly boundary), so this is an apples-to-apples compact
      * serialization for comparison */
-    private static readonly System.Text.Json.JsonSerializerOptions ClassicSerializerOptions = new() {
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
-    /// <summary>
-    /// What NormalizeToString cost before it was rewritten over the flat
-    /// result (materialize a JsonObject, then serialize it) — the reference
-    /// point StructuredToJsonText must beat to justify running the walk
-    /// through the flat path at all when the caller wants text.
-    /// </summary>
-    [Benchmark(OperationsPerInvoke = 4)]
-    public int StructuredClassicToJsonText()
-    {
-        var r = 0;
-        foreach (var msg in _structuredMatch)
-        {
-            r += _structuredCtx.Normalize(msg, out JsonObject json);
-            _ = json.ToJsonString(ClassicSerializerOptions);
-        }
-
-        return r;
-    }
 }
 
 /// <summary>
@@ -160,6 +159,26 @@ public class ConcurrentBenchmarks
 
     private LogNormContext _ctx = null!;
     private string[] _messages = null!;
+
+    [Benchmark(OperationsPerInvoke = MessagesPerInvoke)]
+    public void ConcurrentNormalize()
+    {
+        var partitioner = Partitioner.Create(
+            0,
+            MessagesPerInvoke,
+            Math.Max(1, MessagesPerInvoke / (Environment.ProcessorCount * 4))
+        );
+
+        Parallel.ForEach(partitioner, new ParallelOptions {
+            MaxDegreeOfParallelism = Environment.ProcessorCount
+        },
+        range => {
+            for (var i = range.Item1; i < range.Item2; i++)
+            {
+                _ctx.Normalize(_messages[i], out JsonObject _);
+            }
+        });
+    }
 
     [GlobalSetup]
     public void Setup()
@@ -181,26 +200,6 @@ public class ConcurrentBenchmarks
         }
 
         _ctx.Normalize(_messages[0], out JsonObject _);
-    }
-
-    [Benchmark(OperationsPerInvoke = MessagesPerInvoke)]
-    public void ConcurrentNormalize()
-    {
-        var partitioner = Partitioner.Create(
-            0,
-            MessagesPerInvoke,
-            Math.Max(1, MessagesPerInvoke / (Environment.ProcessorCount * 4))
-        );
-
-        Parallel.ForEach(partitioner, new ParallelOptions {
-            MaxDegreeOfParallelism = Environment.ProcessorCount
-        },
-        range => {
-            for (var i = range.Item1; i < range.Item2; i++)
-            {
-                _ctx.Normalize(_messages[i], out JsonObject _);
-            }
-        });
     }
 
     [Benchmark(OperationsPerInvoke = MessagesPerInvoke)]

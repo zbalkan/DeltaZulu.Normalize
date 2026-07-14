@@ -58,23 +58,6 @@ internal static class RulebaseLoader
         return LoadFile(ctx, path); /* emits the "cannot open rulebase" error */
     }
 
-    /// <summary>Load a rulebase file (must start with a "version=2" header line).</summary>
-    public static int LoadFile(LogNormContext ctx, string path)
-    {
-        var savedFile = ctx.ConfFile;
-        var savedLine = ctx.ConfLineNumber;
-        ctx.ConfFile = path;
-        ctx.ConfLineNumber = 0;
-        ctx.IncludeLevel++;
-
-        var r = SampLoad(ctx, path);
-
-        ctx.IncludeLevel--;
-        ctx.ConfFile = savedFile;
-        ctx.ConfLineNumber = savedLine;
-        return r;
-    }
-
     /// <summary>
     /// Load every rulebase file found in a directory (and, when
     /// <paramref name="recursive"/> is set, its subdirectories). Files are
@@ -135,6 +118,23 @@ internal static class RulebaseLoader
         return 0;
     }
 
+    /// <summary>Load a rulebase file (must start with a "version=2" header line).</summary>
+    public static int LoadFile(LogNormContext ctx, string path)
+    {
+        var savedFile = ctx.ConfFile;
+        var savedLine = ctx.ConfLineNumber;
+        ctx.ConfFile = path;
+        ctx.ConfLineNumber = 0;
+        ctx.IncludeLevel++;
+
+        var r = SampLoad(ctx, path);
+
+        ctx.IncludeLevel--;
+        ctx.ConfFile = savedFile;
+        ctx.ConfLineNumber = savedLine;
+        return r;
+    }
+
     /// <summary>Load rulebase content from a string (no "version=2" header expected).</summary>
     public static int LoadString(LogNormContext ctx, string rulebase)
     {
@@ -152,291 +152,97 @@ internal static class RulebaseLoader
         return r;
     }
 
-    private static string? ResolveRulebasePath(string file)
+    /// <summary>
+    /// Parse one field definition. The buffer must be positioned on the
+    /// leading '%'. Supports the "full JSON" form (a raw JSON object/array
+    /// directly after '%') and the legacy/condensed "name:type{params}" form.
+    /// </summary>
+    private static int AddFieldDescr(LogNormContext ctx, ref Pdag pdag, string rule, ref int i)
     {
-        if (File.Exists(file))
+        ++i; /* eat '%' */
+        while (i < rule.Length && char.IsWhiteSpace(rule[i]))
         {
-            return file;
+            ++i;
         }
 
-        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES");
-        if (rbLib == null || Path.IsPathRooted(file))
+        JsonNode? config;
+        if (i < rule.Length && (rule[i] == '{' || rule[i] == '['))
         {
-            return null;
+            if (!JsonText.TryParseValue(rule, i, out config, out var consumed)
+                || config == null || i + consumed >= rule.Length || rule[i + consumed] != '%')
+            {
+                ctx.Error($"invalid json in '{rule[i..]}'");
+                return ErrorCodes.BadConfig;
+            }
+            i += consumed + 1; /* also eat the closing '%' */
+        }
+        else
+        {
+            if (!ParseLegacyFieldDescr(ctx, rule, ref i, out var legacyCfg))
+            {
+                return ErrorCodes.BadConfig;
+            }
+
+            config = legacyCfg;
         }
 
-        var candidate = Path.Combine(rbLib, file);
-        return File.Exists(candidate) ? candidate : null;
-    }
-
-    private static string? ResolveRulebaseDirectory(string directory)
-    {
-        if (Directory.Exists(directory))
-        {
-            return directory;
-        }
-
-        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES");
-        if (rbLib == null || Path.IsPathRooted(directory))
-        {
-            return null;
-        }
-
-        var candidate = Path.Combine(rbLib, directory);
-        return Directory.Exists(candidate) ? candidate : null;
-    }
-
-    private static int SampLoad(LogNormContext ctx, string file)
-    {
-        var resolved = ResolveRulebasePath(file);
-        if (resolved == null)
-        {
-            ctx.Error($"cannot open rulebase '{file}'");
-            return 1;
-        }
-
-        string text;
-        try
-        {
-            text = File.ReadAllText(resolved);
-        }
-        catch (IOException ex)
-        {
-            ctx.Error($"cannot open rulebase '{file}': {ex.Message}");
-            return 1;
-        }
-
-        var newlineIdx = text.IndexOf('\n');
-        var firstLine = (newlineIdx >= 0 ? text[..newlineIdx] : text).TrimEnd('\r');
-        if (firstLine != "version=2")
-        {
-            ctx.Error($"rulebase '{file}' must be version 2 " +
-                      "(v1 rulebases are not supported by this port)");
-            return 1;
-        }
-
-        ctx.ConfLineNumber++; /* "version=2" is line 1 */
-        var body = newlineIdx >= 0 ? text[(newlineIdx + 1)..] : string.Empty;
-        return RunLoad(ctx, body, checkRunaway: true);
+        return PdagBuilder.AddParser(ctx, ref pdag, config!);
     }
 
     /// <summary>
-    /// Peek ahead over blank lines and comment lines (without consuming any
-    /// input) to see whether the next real content looks like the start of a
-    /// new rule. Used to detect "runaway rules": a multi-line rule left open
-    /// by an unmatched '%' will otherwise silently swallow everything up to
-    /// the next accidental '%' pair, which is almost always a config typo.
+    /// Split a rule/type pattern into literal chunks and field definitions
+    /// and add them all to the DAG in sequence, then mark the resulting node
+    /// terminal (assigning tags, for rules).
     /// </summary>
-    private static bool PeekIsRunawayRule(string text, int pos)
+    private static int AddSampToTree(LogNormContext ctx, string rule, ref Pdag dag, JsonArray? tagBucket)
     {
-        while (true)
+        var i = 0;
+        while (i < rule.Length)
         {
-            while (pos < text.Length && (text[pos] == '\n' || text[pos] == '\r'))
-            {
-                pos++;
-            }
-
-            if (pos >= text.Length)
-            {
-                return false;
-            }
-
-            if (text[pos] == '#')
-            {
-                var nl = text.IndexOf('\n', pos);
-                if (nl < 0)
-                {
-                    return false;
-                }
-
-                pos = nl + 1;
-                continue;
-            }
-            break;
-        }
-        return pos + 5 <= text.Length && text.AsSpan(pos, 5).SequenceEqual("rule=");
-    }
-
-    /// <summary>
-    /// Read the next logical rulebase line: comment lines are dropped and a
-    /// '%'-delimited field definition may itself span physical lines (any
-    /// newline inside it is simply removed, not converted to a space).
-    /// </summary>
-    private static string? ReadLogicalLine(LogNormContext ctx, string text, ref int pos, bool checkRunaway)
-    {
-        var buf = new StringBuilder();
-        var inField = false;
-
-        while (true)
-        {
-            if (pos >= text.Length)
-            {
-                return buf.Length == 0 ? null : buf.ToString();
-            }
-
-            var c = text[pos++];
-            if (c == '\r' && pos < text.Length && text[pos] == '\n')
-            {
-                c = text[pos++]; /* CRLF line ending: fold to a single LF */
-            }
-
-            if (c == '\n')
-            {
-                ctx.ConfLineNumber++;
-                if (inField && checkRunaway && PeekIsRunawayRule(text, pos))
-                {
-                    ctx.Error("line has 'rule=' at begin of line, which does look like a typo in the " +
-                              "previous lines (unmatched '%' character) and is forbidden. If valid, " +
-                              "please re-format the rule to start with other characters. Rule ignored.");
-                    inField = false;
-                    buf.Clear();
-                }
-                if (!inField && buf.Length != 0)
-                {
-                    return buf.ToString();
-                }
-            }
-            else if (c == '#' && buf.Length == 0)
-            {
-                var nl = text.IndexOf('\n', pos);
-                if (nl < 0)
-                {
-                    pos = text.Length;
-                }
-                else
-                {
-                    pos = nl + 1;
-                    ctx.ConfLineNumber++;
-                }
-            }
-            else
-            {
-                if (c == '%')
-                {
-                    inField = !inField;
-                }
-
-                buf.Append(c);
-            }
-        }
-    }
-
-    private static int RunLoad(LogNormContext ctx, string text, bool checkRunaway)
-    {
-        var pos = 0;
-        while (true)
-        {
-            var line = ReadLogicalLine(ctx, text, ref pos, checkRunaway);
-            if (line == null)
-            {
-                return 0;
-            }
-
-            var r = ProcessLine(ctx, line);
+            var r = ParseLiteral(ctx, ref dag, rule, ref i);
             if (r != 0)
             {
                 return r;
             }
-        }
-    }
 
-    /* ---------- line dispatch ---------- */
-
-    private static int ProcessLine(LogNormContext ctx, string line)
-    {
-        var eq = line.IndexOf('=');
-        var lineType = eq < 0 ? line : line[..eq];
-        var offs = eq < 0 ? line.Length : eq + 1;
-
-        switch (lineType)
-        {
-            case "prefix":
-                ctx.RulePrefix = line[offs..];
-                return 0;
-
-            case "extendprefix":
-                /* the C library's equivalent (extendPrefix in samp.c) assumes
-                 * a prefix already exists and has no guard for a NULL one;
-                 * treating a "bare" extendprefix= as equivalent to prefix= is
-                 * an intentional, more defensive choice, not a faithfully
-                 * ported quirk */
-                ctx.RulePrefix = (ctx.RulePrefix ?? "") + line[offs..];
-                return 0;
-
-            case "rule":
-                return ProcessRule(ctx, line, offs);
-
-            case "type":
-                return ProcessType(ctx, line, offs);
-
-            case "annotate":
-                return ProcessAnnotate(ctx, line, offs);
-
-            case "include":
-                return ProcessInclude(ctx, line, offs);
-
-            default:
-                ctx.Error($"invalid record type detected: '{lineType}'");
-                return 1;
-        }
-    }
-
-    /* ---------- rule / type ---------- */
-
-    private static bool ProcessTags(string line, ref int offs, out JsonArray? tagBucket)
-    {
-        tagBucket = null;
-        var i = offs;
-        var sb = new StringBuilder();
-
-        while (i < line.Length && line[i] != ':')
-        {
-            if (line[i] == ',')
+            if (i < rule.Length)
             {
-                if (sb.Length == 0)
+                r = AddFieldDescr(ctx, ref dag, rule, ref i);
+                if (r != 0)
                 {
-                    return false; /* empty tag before a comma */
+                    return r;
                 }
 
-                (tagBucket ??= new JsonArray()).Add(sb.ToString());
-                sb.Clear();
+                if (i == rule.Length)
+                {
+                    /* finish with an empty literal to avoid false merging with a
+                     * later rule that happens to continue with the same text */
+                    r = ParseLiteral(ctx, ref dag, rule, ref i);
+                    if (r != 0)
+                    {
+                        return r;
+                    }
+                }
             }
-            else
-            {
-                sb.Append(line[i]);
-            }
-            ++i;
-        }
-        if (i >= line.Length || line[i] != ':')
-        {
-            return false; /* the ':' separator is mandatory, even with no tags */
         }
 
-        ++i;
-        if (sb.Length > 0)
-        {
-            (tagBucket ??= new JsonArray()).Add(sb.ToString());
-        }
-
-        offs = i;
-        return true;
+        dag.IsTerminal = true;
+        dag.Tags = tagBucket;
+        dag.RulebaseFile = ctx.ConfFile;
+        dag.RulebaseLineNumber = ctx.ConfLineNumber;
+        return 0;
     }
 
-    private static int ProcessRule(LogNormContext ctx, string line, int offs)
+    private static bool GetFieldName(string line, ref int i, out string name)
     {
-        if (!ProcessTags(line, ref offs, out var tagBucket))
+        var sb = new StringBuilder();
+        while (i < line.Length && (char.IsLetterOrDigit(line[i]) || line[i] == '_' || line[i] == '.'))
         {
-            ctx.Error($"error parsing tags in rule line: '{line}'");
-            return 1;
+            sb.Append(line[i++]);
         }
-        if (offs == line.Length)
-        {
-            ctx.Error("error: actual message sample part is missing");
-            return 1;
-        }
-        var rule = (ctx.RulePrefix ?? string.Empty) + line[offs..];
-        var root = ctx.Root;
-        return AddSampToTree(ctx, rule, ref root, tagBucket);
+
+        name = sb.ToString();
+        return true;
     }
 
     private static bool GetTypeName(LogNormContext ctx, string line, ref int offs, out string typeName)
@@ -469,166 +275,8 @@ internal static class RulebaseLoader
         return true;
     }
 
-    private static int ProcessType(LogNormContext ctx, string line, int offs)
-    {
-        if (!GetTypeName(ctx, line, ref offs, out var typeName))
-        {
-            return 1;
-        }
-
-        if (offs == line.Length)
-        {
-            ctx.Error("error: actual message sample part is missing in type def");
-            return 1;
-        }
-        var td = PdagBuilder.FindType(ctx, typeName, add: true);
-        var dag = ctx.TypePdags[td].Dag;
-        return AddSampToTree(ctx, line[offs..], ref dag, null);
-    }
-
-    /* ---------- annotate ---------- */
-
-    private static bool GetFieldName(string line, ref int i, out string name)
-    {
-        var sb = new StringBuilder();
-        while (i < line.Length && (char.IsLetterOrDigit(line[i]) || line[i] == '_' || line[i] == '.'))
-        {
-            sb.Append(line[i++]);
-        }
-
-        name = sb.ToString();
-        return true;
-    }
-
-    private static void SkipWhitespace(string line, ref int i)
-    {
-        while (i < line.Length && char.IsWhiteSpace(line[i]))
-        {
-            ++i;
-        }
-    }
-
-    private static int ProcessAnnotate(LogNormContext ctx, string line, int offs)
-    {
-        GetFieldName(line, ref offs, out var tag);
-        SkipWhitespace(line, ref offs);
-        if (tag.Length == 0 || offs >= line.Length || line[offs] != ':')
-        {
-            ctx.Error($"invalid tag field in annotation, line is '{line}'");
-            return 1;
-        }
-        ++offs;
-
-        while (offs < line.Length)
-        {
-            SkipWhitespace(line, ref offs);
-            if (offs == line.Length)
-            {
-                break;
-            }
-
-            if (line[offs] == '#')
-            {
-                break; /* inline comment: rest of line ignored */
-            }
-
-            if (line[offs] != '+')
-            {
-                ctx.Error($"invalid annotate operation '{line[offs]}': {line[offs..]}");
-                return 1;
-            }
-            ++offs;
-            if (offs == line.Length)
-            {
-                return 1;
-            }
-
-            GetFieldName(line, ref offs, out var fieldName);
-            if (offs == line.Length || line[offs] != '=')
-            {
-                return 1;
-            }
-
-            ++offs;
-            SkipWhitespace(line, ref offs);
-            if (offs == line.Length || line[offs] != '"')
-            {
-                return 1;
-            }
-
-            ++offs;
-
-            var val = new StringBuilder();
-            while (offs < line.Length && line[offs] != '"')
-            {
-                val.Append(line[offs++]);
-            }
-
-            offs = offs == line.Length ? offs : offs + 1;
-
-            ctx.Annotations.AddOp(tag, fieldName, val.ToString());
-        }
-        return 0;
-    }
-
-    /* ---------- include ---------- */
-
-    private static int ProcessInclude(LogNormContext ctx, string line, int offs)
-    {
-        var fname = line[offs..].TrimEnd();
-        var savedFile = ctx.ConfFile;
-        var savedLine = ctx.ConfLineNumber;
-        var r = ctx.LoadSamples(fname);
-        ctx.ConfFile = savedFile;
-        ctx.ConfLineNumber = savedLine;
-        return r;
-    }
-
-    /* ---------- rule pattern: literal/field splitting ---------- */
-
     private static JsonObject NewLiteralParserConfig(char lit)
         => new() { ["type"] = "literal", ["text"] = lit.ToString() };
-
-    /// <summary>
-    /// Consume a run of literal text up to the next field definition (or
-    /// end of pattern). A doubled "%%" collapses to one literal '%'; a
-    /// trailing single '%' at the very end of the pattern is dropped. The
-    /// collected text is then unescaped (backslash + hex escapes) and added
-    /// to the DAG one character at a time — the optimizer compacts runs of
-    /// single-char literals afterwards.
-    /// </summary>
-    private static int ParseLiteral(LogNormContext ctx, ref Pdag pdag, string rule, ref int i)
-    {
-        var sb = new StringBuilder();
-        while (i < rule.Length)
-        {
-            if (rule[i] == '%')
-            {
-                if (i + 1 < rule.Length && rule[i + 1] != '%')
-                {
-                    break; /* field start ends the literal */
-                }
-
-                if (++i == rule.Length)
-                {
-                    break;
-                }
-            }
-            sb.Append(rule[i]);
-            ++i;
-        }
-
-        var lit = TextRules.Unescape(sb.ToString());
-        foreach (var c in lit)
-        {
-            var r = PdagBuilder.AddParser(ctx, ref pdag, NewLiteralParserConfig(c));
-            if (r != 0)
-            {
-                return r;
-            }
-        }
-        return 0;
-    }
 
     private static bool ParseLegacyFieldDescr(LogNormContext ctx, string rule, ref int i, out JsonObject? config)
     {
@@ -736,83 +384,432 @@ internal static class RulebaseLoader
     }
 
     /// <summary>
-    /// Parse one field definition. The buffer must be positioned on the
-    /// leading '%'. Supports the "full JSON" form (a raw JSON object/array
-    /// directly after '%') and the legacy/condensed "name:type{params}" form.
+    /// Consume a run of literal text up to the next field definition (or
+    /// end of pattern). A doubled "%%" collapses to one literal '%'; a
+    /// trailing single '%' at the very end of the pattern is dropped. The
+    /// collected text is then unescaped (backslash + hex escapes) and added
+    /// to the DAG one character at a time — the optimizer compacts runs of
+    /// single-char literals afterwards.
     /// </summary>
-    private static int AddFieldDescr(LogNormContext ctx, ref Pdag pdag, string rule, ref int i)
+    private static int ParseLiteral(LogNormContext ctx, ref Pdag pdag, string rule, ref int i)
     {
-        ++i; /* eat '%' */
-        while (i < rule.Length && char.IsWhiteSpace(rule[i]))
+        var sb = new StringBuilder();
+        while (i < rule.Length)
         {
+            if (rule[i] == '%')
+            {
+                if (i + 1 < rule.Length && rule[i + 1] != '%')
+                {
+                    break; /* field start ends the literal */
+                }
+
+                if (++i == rule.Length)
+                {
+                    break;
+                }
+            }
+            sb.Append(rule[i]);
             ++i;
         }
 
-        JsonNode? config;
-        if (i < rule.Length && (rule[i] == '{' || rule[i] == '['))
+        var lit = TextRules.Unescape(sb.ToString());
+        foreach (var c in lit)
         {
-            if (!JsonText.TryParseValue(rule, i, out config, out var consumed)
-                || config == null || i + consumed >= rule.Length || rule[i + consumed] != '%')
-            {
-                ctx.Error($"invalid json in '{rule[i..]}'");
-                return ErrorCodes.BadConfig;
-            }
-            i += consumed + 1; /* also eat the closing '%' */
-        }
-        else
-        {
-            if (!ParseLegacyFieldDescr(ctx, rule, ref i, out var legacyCfg))
-            {
-                return ErrorCodes.BadConfig;
-            }
-
-            config = legacyCfg;
-        }
-
-        return PdagBuilder.AddParser(ctx, ref pdag, config!);
-    }
-
-    /// <summary>
-    /// Split a rule/type pattern into literal chunks and field definitions
-    /// and add them all to the DAG in sequence, then mark the resulting node
-    /// terminal (assigning tags, for rules).
-    /// </summary>
-    private static int AddSampToTree(LogNormContext ctx, string rule, ref Pdag dag, JsonArray? tagBucket)
-    {
-        var i = 0;
-        while (i < rule.Length)
-        {
-            var r = ParseLiteral(ctx, ref dag, rule, ref i);
+            var r = PdagBuilder.AddParser(ctx, ref pdag, NewLiteralParserConfig(c));
             if (r != 0)
             {
                 return r;
             }
-
-            if (i < rule.Length)
-            {
-                r = AddFieldDescr(ctx, ref dag, rule, ref i);
-                if (r != 0)
-                {
-                    return r;
-                }
-
-                if (i == rule.Length)
-                {
-                    /* finish with an empty literal to avoid false merging with a
-                     * later rule that happens to continue with the same text */
-                    r = ParseLiteral(ctx, ref dag, rule, ref i);
-                    if (r != 0)
-                    {
-                        return r;
-                    }
-                }
-            }
         }
-
-        dag.IsTerminal = true;
-        dag.Tags = tagBucket;
-        dag.RulebaseFile = ctx.ConfFile;
-        dag.RulebaseLineNumber = ctx.ConfLineNumber;
         return 0;
     }
+
+    /// <summary>
+    /// Peek ahead over blank lines and comment lines (without consuming any
+    /// input) to see whether the next real content looks like the start of a
+    /// new rule. Used to detect "runaway rules": a multi-line rule left open
+    /// by an unmatched '%' will otherwise silently swallow everything up to
+    /// the next accidental '%' pair, which is almost always a config typo.
+    /// </summary>
+    private static bool PeekIsRunawayRule(string text, int pos)
+    {
+        while (true)
+        {
+            while (pos < text.Length && (text[pos] == '\n' || text[pos] == '\r'))
+            {
+                pos++;
+            }
+
+            if (pos >= text.Length)
+            {
+                return false;
+            }
+
+            if (text[pos] == '#')
+            {
+                var nl = text.IndexOf('\n', pos);
+                if (nl < 0)
+                {
+                    return false;
+                }
+
+                pos = nl + 1;
+                continue;
+            }
+            break;
+        }
+        return pos + 5 <= text.Length && text.AsSpan(pos, 5).SequenceEqual("rule=");
+    }
+
+    private static int ProcessAnnotate(LogNormContext ctx, string line, int offs)
+    {
+        GetFieldName(line, ref offs, out var tag);
+        SkipWhitespace(line, ref offs);
+        if (tag.Length == 0 || offs >= line.Length || line[offs] != ':')
+        {
+            ctx.Error($"invalid tag field in annotation, line is '{line}'");
+            return 1;
+        }
+        ++offs;
+
+        while (offs < line.Length)
+        {
+            SkipWhitespace(line, ref offs);
+            if (offs == line.Length)
+            {
+                break;
+            }
+
+            if (line[offs] == '#')
+            {
+                break; /* inline comment: rest of line ignored */
+            }
+
+            if (line[offs] != '+')
+            {
+                ctx.Error($"invalid annotate operation '{line[offs]}': {line[offs..]}");
+                return 1;
+            }
+            ++offs;
+            if (offs == line.Length)
+            {
+                return 1;
+            }
+
+            GetFieldName(line, ref offs, out var fieldName);
+            if (offs == line.Length || line[offs] != '=')
+            {
+                return 1;
+            }
+
+            ++offs;
+            SkipWhitespace(line, ref offs);
+            if (offs == line.Length || line[offs] != '"')
+            {
+                return 1;
+            }
+
+            ++offs;
+
+            var val = new StringBuilder();
+            while (offs < line.Length && line[offs] != '"')
+            {
+                val.Append(line[offs++]);
+            }
+
+            offs = offs == line.Length ? offs : offs + 1;
+
+            ctx.Annotations.AddOp(tag, fieldName, val.ToString());
+        }
+        return 0;
+    }
+
+    private static int ProcessInclude(LogNormContext ctx, string line, int offs)
+    {
+        var fname = line[offs..].TrimEnd();
+        var savedFile = ctx.ConfFile;
+        var savedLine = ctx.ConfLineNumber;
+        var r = ctx.LoadSamples(fname);
+        ctx.ConfFile = savedFile;
+        ctx.ConfLineNumber = savedLine;
+        return r;
+    }
+
+    private static int ProcessLine(LogNormContext ctx, string line)
+    {
+        var eq = line.IndexOf('=');
+        var lineType = eq < 0 ? line : line[..eq];
+        var offs = eq < 0 ? line.Length : eq + 1;
+
+        switch (lineType)
+        {
+            case "prefix":
+                ctx.RulePrefix = line[offs..];
+                return 0;
+
+            case "extendprefix":
+                /* the C library's equivalent (extendPrefix in samp.c) assumes
+                 * a prefix already exists and has no guard for a NULL one;
+                 * treating a "bare" extendprefix= as equivalent to prefix= is
+                 * an intentional, more defensive choice, not a faithfully
+                 * ported quirk */
+                ctx.RulePrefix = (ctx.RulePrefix ?? "") + line[offs..];
+                return 0;
+
+            case "rule":
+                return ProcessRule(ctx, line, offs);
+
+            case "type":
+                return ProcessType(ctx, line, offs);
+
+            case "annotate":
+                return ProcessAnnotate(ctx, line, offs);
+
+            case "include":
+                return ProcessInclude(ctx, line, offs);
+
+            default:
+                ctx.Error($"invalid record type detected: '{lineType}'");
+                return 1;
+        }
+    }
+
+    private static int ProcessRule(LogNormContext ctx, string line, int offs)
+    {
+        if (!ProcessTags(line, ref offs, out var tagBucket))
+        {
+            ctx.Error($"error parsing tags in rule line: '{line}'");
+            return 1;
+        }
+        if (offs == line.Length)
+        {
+            ctx.Error("error: actual message sample part is missing");
+            return 1;
+        }
+        var rule = (ctx.RulePrefix ?? string.Empty) + line[offs..];
+        var root = ctx.Root;
+        return AddSampToTree(ctx, rule, ref root, tagBucket);
+    }
+
+    private static bool ProcessTags(string line, ref int offs, out JsonArray? tagBucket)
+    {
+        tagBucket = null;
+        var i = offs;
+        var sb = new StringBuilder();
+
+        while (i < line.Length && line[i] != ':')
+        {
+            if (line[i] == ',')
+            {
+                if (sb.Length == 0)
+                {
+                    return false; /* empty tag before a comma */
+                }
+
+                (tagBucket ??= new JsonArray()).Add(sb.ToString());
+                sb.Clear();
+            }
+            else
+            {
+                sb.Append(line[i]);
+            }
+            ++i;
+        }
+        if (i >= line.Length || line[i] != ':')
+        {
+            return false; /* the ':' separator is mandatory, even with no tags */
+        }
+
+        ++i;
+        if (sb.Length > 0)
+        {
+            (tagBucket ??= new JsonArray()).Add(sb.ToString());
+        }
+
+        offs = i;
+        return true;
+    }
+
+    private static int ProcessType(LogNormContext ctx, string line, int offs)
+    {
+        if (!GetTypeName(ctx, line, ref offs, out var typeName))
+        {
+            return 1;
+        }
+
+        if (offs == line.Length)
+        {
+            ctx.Error("error: actual message sample part is missing in type def");
+            return 1;
+        }
+        var td = PdagBuilder.FindType(ctx, typeName, add: true);
+        var dag = ctx.TypePdags[td].Dag;
+        return AddSampToTree(ctx, line[offs..], ref dag, null);
+    }
+
+    /// <summary>
+    /// Read the next logical rulebase line: comment lines are dropped and a
+    /// '%'-delimited field definition may itself span physical lines (any
+    /// newline inside it is simply removed, not converted to a space).
+    /// </summary>
+    private static string? ReadLogicalLine(LogNormContext ctx, string text, ref int pos, bool checkRunaway)
+    {
+        var buf = new StringBuilder();
+        var inField = false;
+
+        while (true)
+        {
+            if (pos >= text.Length)
+            {
+                return buf.Length == 0 ? null : buf.ToString();
+            }
+
+            var c = text[pos++];
+            if (c == '\r' && pos < text.Length && text[pos] == '\n')
+            {
+                c = text[pos++]; /* CRLF line ending: fold to a single LF */
+            }
+
+            if (c == '\n')
+            {
+                ctx.ConfLineNumber++;
+                if (inField && checkRunaway && PeekIsRunawayRule(text, pos))
+                {
+                    ctx.Error("line has 'rule=' at begin of line, which does look like a typo in the " +
+                              "previous lines (unmatched '%' character) and is forbidden. If valid, " +
+                              "please re-format the rule to start with other characters. Rule ignored.");
+                    inField = false;
+                    buf.Clear();
+                }
+                if (!inField && buf.Length != 0)
+                {
+                    return buf.ToString();
+                }
+            }
+            else if (c == '#' && buf.Length == 0)
+            {
+                var nl = text.IndexOf('\n', pos);
+                if (nl < 0)
+                {
+                    pos = text.Length;
+                }
+                else
+                {
+                    pos = nl + 1;
+                    ctx.ConfLineNumber++;
+                }
+            }
+            else
+            {
+                if (c == '%')
+                {
+                    inField = !inField;
+                }
+
+                buf.Append(c);
+            }
+        }
+    }
+
+    private static string? ResolveRulebaseDirectory(string directory)
+    {
+        if (Directory.Exists(directory))
+        {
+            return directory;
+        }
+
+        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES");
+        if (rbLib == null || Path.IsPathRooted(directory))
+        {
+            return null;
+        }
+
+        var candidate = Path.Combine(rbLib, directory);
+        return Directory.Exists(candidate) ? candidate : null;
+    }
+
+    private static string? ResolveRulebasePath(string file)
+    {
+        if (File.Exists(file))
+        {
+            return file;
+        }
+
+        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES");
+        if (rbLib == null || Path.IsPathRooted(file))
+        {
+            return null;
+        }
+
+        var candidate = Path.Combine(rbLib, file);
+        return File.Exists(candidate) ? candidate : null;
+    }
+
+    private static int RunLoad(LogNormContext ctx, string text, bool checkRunaway)
+    {
+        var pos = 0;
+        while (true)
+        {
+            var line = ReadLogicalLine(ctx, text, ref pos, checkRunaway);
+            if (line == null)
+            {
+                return 0;
+            }
+
+            var r = ProcessLine(ctx, line);
+            if (r != 0)
+            {
+                return r;
+            }
+        }
+    }
+
+    private static int SampLoad(LogNormContext ctx, string file)
+    {
+        var resolved = ResolveRulebasePath(file);
+        if (resolved == null)
+        {
+            ctx.Error($"cannot open rulebase '{file}'");
+            return 1;
+        }
+
+        string text;
+        try
+        {
+            text = File.ReadAllText(resolved);
+        }
+        catch (IOException ex)
+        {
+            ctx.Error($"cannot open rulebase '{file}': {ex.Message}");
+            return 1;
+        }
+
+        var newlineIdx = text.IndexOf('\n');
+        var firstLine = (newlineIdx >= 0 ? text[..newlineIdx] : text).TrimEnd('\r');
+        if (firstLine != "version=2")
+        {
+            ctx.Error($"rulebase '{file}' must be version 2 " +
+                      "(v1 rulebases are not supported by this port)");
+            return 1;
+        }
+
+        ctx.ConfLineNumber++; /* "version=2" is line 1 */
+        var body = newlineIdx >= 0 ? text[(newlineIdx + 1)..] : string.Empty;
+        return RunLoad(ctx, body, checkRunaway: true);
+    }
+
+    /* ---------- line dispatch ---------- */
+    /* ---------- rule / type ---------- */
+    /* ---------- annotate ---------- */
+
+    private static void SkipWhitespace(string line, ref int i)
+    {
+        while (i < line.Length && char.IsWhiteSpace(line[i]))
+        {
+            ++i;
+        }
+    }
+
+    /* ---------- include ---------- */
+    /* ---------- rule pattern: literal/field splitting ---------- */
 }

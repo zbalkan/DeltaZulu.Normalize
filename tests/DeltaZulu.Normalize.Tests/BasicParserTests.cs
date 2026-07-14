@@ -10,18 +10,44 @@ namespace DeltaZulu.Normalize.Tests;
 public class BasicParserTests
 {
     [TestMethod]
-    public void Number_ExtractsDigitsAndFailsOnTrailingLetters()
+    public void CharTo_CoercesNonStringExtradataInsteadOfThrowing()
     {
-        const string rb = "rule=:here is a number %num:number% in dec form";
-        var (r1, j1) = TestHelpers.Normalize(rb, "here is a number 1234 in dec form");
-        Assert.AreEqual(0, r1);
-        AssertJsonEquals("""{"num": "1234"}""", j1);
+        /* json-c's json_object_get_string() coerces any scalar to text; a
+         * bare number here should behave like the string "5", not crash.
+         * The trailing literal "5" consumes the terminator char-to itself
+         * doesn't consume, so the whole message matches. */
+        var (r, j) = TestHelpers.Normalize("""rule=:%f:char-to{"extradata":5}%5""", "12345");
+        Assert.AreEqual(0, r);
+        AssertJsonEquals("""{"f": "1234"}""", j);
+    }
 
-        var (r2, j2) = TestHelpers.Normalize(rb, "here is a number 1234in dec form");
-        Assert.AreNotEqual(0, r2);
-        AssertJsonEquals("""
-            { "originalmsg": "here is a number 1234in dec form", "unparsed-data": "in dec form" }
-            """, j2);
+    [TestMethod]
+    [DataRow("duration 0:00:42 bytes", "0:00:42")]
+    [DataRow("duration 0:00:42", "0:00:42")]
+    [DataRow("duration 9:00:42 bytes", "9:00:42")]
+    [DataRow("duration 00:00:42 bytes", "00:00:42")]
+    [DataRow("duration 37:59:42 bytes", "37:59:42")]
+    public void Duration_AcceptsOneOrTwoDigitHours(string message, string expected)
+    {
+        const string rb = """
+            rule=:duration %field:duration% bytes
+            rule=:duration %field:duration%
+            """;
+        var (r, j) = TestHelpers.Normalize(rb, message);
+        Assert.AreEqual(0, r);
+        AssertJsonEquals($$"""{"field": "{{expected}}"}""", j);
+    }
+
+    [TestMethod]
+    public void Duration_RejectsOutOfRangeMinutes()
+    {
+        const string rb = """
+            rule=:duration %field:duration% bytes
+            rule=:duration %field:duration%
+            """;
+        var (r, j) = TestHelpers.Normalize(rb, "duration 37:60:42 bytes");
+        Assert.AreNotEqual(0, r);
+        Assert.AreEqual("37:60:42 bytes", j["unparsed-data"]!.GetValue<string>());
     }
 
     [TestMethod]
@@ -92,6 +118,19 @@ public class BasicParserTests
     }
 
     [TestMethod]
+    public void Literal_PreservesHexEscapesAsRawByteChars()
+    {
+        /* \xHH escapes mirror libestr byte escapes: each escaped byte becomes
+         * one char with that byte value, even if the byte run is not valid or
+         * complete UTF-8. */
+        var (r, j) = TestHelpers.Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "caf\u00C3\u00A9 bar");
+        Assert.AreEqual(0, r);
+        AssertJsonEquals("""{ "f": "bar" }""", j);
+
+        Assert.AreNotEqual(0, TestHelpers.Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "café bar").Result);
+    }
+
+    [TestMethod]
     [DataRow("f0:f6:1c:5f:cc:a2")]
     [DataRow("f0-f6-1c-5f-cc-a2")]
     public void Mac48_AcceptsColonAndHyphenDelimited(string mac)
@@ -111,32 +150,18 @@ public class BasicParserTests
     }
 
     [TestMethod]
-    [DataRow("duration 0:00:42 bytes", "0:00:42")]
-    [DataRow("duration 0:00:42", "0:00:42")]
-    [DataRow("duration 9:00:42 bytes", "9:00:42")]
-    [DataRow("duration 00:00:42 bytes", "00:00:42")]
-    [DataRow("duration 37:59:42 bytes", "37:59:42")]
-    public void Duration_AcceptsOneOrTwoDigitHours(string message, string expected)
+    public void Number_ExtractsDigitsAndFailsOnTrailingLetters()
     {
-        const string rb = """
-            rule=:duration %field:duration% bytes
-            rule=:duration %field:duration%
-            """;
-        var (r, j) = TestHelpers.Normalize(rb, message);
-        Assert.AreEqual(0, r);
-        AssertJsonEquals($$"""{"field": "{{expected}}"}""", j);
-    }
+        const string rb = "rule=:here is a number %num:number% in dec form";
+        var (r1, j1) = TestHelpers.Normalize(rb, "here is a number 1234 in dec form");
+        Assert.AreEqual(0, r1);
+        AssertJsonEquals("""{"num": "1234"}""", j1);
 
-    [TestMethod]
-    public void Duration_RejectsOutOfRangeMinutes()
-    {
-        const string rb = """
-            rule=:duration %field:duration% bytes
-            rule=:duration %field:duration%
-            """;
-        var (r, j) = TestHelpers.Normalize(rb, "duration 37:60:42 bytes");
-        Assert.AreNotEqual(0, r);
-        Assert.AreEqual("37:60:42 bytes", j["unparsed-data"]!.GetValue<string>());
+        var (r2, j2) = TestHelpers.Normalize(rb, "here is a number 1234in dec form");
+        Assert.AreNotEqual(0, r2);
+        AssertJsonEquals("""
+            { "originalmsg": "here is a number 1234in dec form", "unparsed-data": "in dec form" }
+            """, j2);
     }
 
     [TestMethod]
@@ -154,40 +179,6 @@ public class BasicParserTests
     }
 
     [TestMethod]
-    public void StringTo_RejectsEmptyExtradataAsBadConfig()
-    {
-        var errors = new List<string>();
-        var ctx = new LogNormContext { ErrorCallback = errors.Add };
-        var r = ctx.LoadSamplesFromString("rule=:%f:string-to:%");
-        Assert.AreNotEqual(0, r);
-    }
-
-    [TestMethod]
-    public void CharTo_CoercesNonStringExtradataInsteadOfThrowing()
-    {
-        /* json-c's json_object_get_string() coerces any scalar to text; a
-         * bare number here should behave like the string "5", not crash.
-         * The trailing literal "5" consumes the terminator char-to itself
-         * doesn't consume, so the whole message matches. */
-        var (r, j) = TestHelpers.Normalize("""rule=:%f:char-to{"extradata":5}%5""", "12345");
-        Assert.AreEqual(0, r);
-        AssertJsonEquals("""{"f": "1234"}""", j);
-    }
-
-    [TestMethod]
-    public void Literal_PreservesHexEscapesAsRawByteChars()
-    {
-        /* \xHH escapes mirror libestr byte escapes: each escaped byte becomes
-         * one char with that byte value, even if the byte run is not valid or
-         * complete UTF-8. */
-        var (r, j) = TestHelpers.Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "caf\u00C3\u00A9 bar");
-        Assert.AreEqual(0, r);
-        AssertJsonEquals("""{ "f": "bar" }""", j);
-
-        Assert.AreNotEqual(0, TestHelpers.Normalize("""rule=:caf\xC3\xA9 %f:rest%""", "café bar").Result);
-    }
-
-    [TestMethod]
     public void StringParser_RejectsNonBooleanDashIsEmpty()
     {
         var errors = new List<string>();
@@ -197,5 +188,14 @@ public class BasicParserTests
 
         Assert.AreEqual(ErrorCodes.BadConfig, r);
         Assert.Contains(e => e.Contains("option.dashIsEmpty", StringComparison.Ordinal), errors);
+    }
+
+    [TestMethod]
+    public void StringTo_RejectsEmptyExtradataAsBadConfig()
+    {
+        var errors = new List<string>();
+        var ctx = new LogNormContext { ErrorCallback = errors.Add };
+        var r = ctx.LoadSamplesFromString("rule=:%f:string-to:%");
+        Assert.AreNotEqual(0, r);
     }
 }

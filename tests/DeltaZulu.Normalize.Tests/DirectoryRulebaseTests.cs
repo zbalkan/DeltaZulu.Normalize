@@ -33,22 +33,59 @@ public class DirectoryRulebaseTests
         }
     }
 
-    private string WriteRulebase(string relativePath, string body)
+    [TestMethod]
+    public void EmptyDirectoryIsAnError()
     {
-        var path = Path.Combine(_root, relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, "version=2\n" + body);
-        return path;
+        var errors = new List<string>();
+        var ctx = NewContext(errors);
+        Assert.AreNotEqual(0, ctx.LoadSamplesFromDirectory(_root));
+        Assert.Contains(e => e.Contains("no rulebase files"), errors, string.Join("; ", errors));
     }
 
-    private static LogNormContext NewContext(List<string> errors)
-        => new() { ErrorCallback = errors.Add };
-
-    private static void AssertMatches(LogNormContext ctx, string message, string field, string expected)
+    [TestMethod]
+    public void FirstFailingFileStopsTheLoad()
     {
-        var r = ctx.Normalize(message, out JsonObject json);
-        Assert.AreEqual(0, r, $"message did not normalize: '{message}' -> {json.ToJsonString()}");
-        TestHelpers.AssertJsonContains(json, field, expected);
+        WriteRulebase("10-good.rulebase", "rule=:good %a:word%\n");
+        File.WriteAllText(Path.Combine(_root, "20-bad.rulebase"), "no version header\n");
+
+        var errors = new List<string>();
+        var ctx = NewContext(errors);
+        Assert.AreNotEqual(0, ctx.LoadSamplesFromDirectory(_root));
+        Assert.Contains(e => e.Contains("20-bad.rulebase"), errors,
+            $"error should name the failing file, got: {string.Join("; ", errors)}");
+
+        /* rules loaded before the failure remain usable */
+        AssertMatches(ctx, "good x", "a", "x");
+    }
+
+    [TestMethod]
+    public void HiddenFilesAreSkipped()
+    {
+        WriteRulebase("rules.rulebase", "rule=:real %a:word%\n");
+        File.WriteAllText(Path.Combine(_root, ".gitkeep"), "");
+
+        var errors = new List<string>();
+        var ctx = NewContext(errors);
+        Assert.AreEqual(0, ctx.LoadSamplesFromDirectory(_root), string.Join("; ", errors));
+
+        AssertMatches(ctx, "real thing", "a", "thing");
+    }
+
+    [TestMethod]
+    public void IncludeLineMayNameADirectory()
+    {
+        WriteRulebase("extra/one.rulebase", "rule=:extra one %a:word%\n");
+        WriteRulebase("extra/two.rulebase", "rule=:extra two %b:word%\n");
+        var main = WriteRulebase("main.rulebase",
+            $"rule=:main %m:word%\ninclude={Path.Combine(_root, "extra")}\n");
+
+        var errors = new List<string>();
+        var ctx = NewContext(errors);
+        Assert.AreEqual(0, ctx.LoadSamples(main), string.Join("; ", errors));
+
+        AssertMatches(ctx, "main x", "m", "x");
+        AssertMatches(ctx, "extra one y", "a", "y");
+        AssertMatches(ctx, "extra two z", "b", "z");
     }
 
     [TestMethod]
@@ -82,6 +119,46 @@ public class DirectoryRulebaseTests
     }
 
     [TestMethod]
+    public void ManyFilesBuildOneCombinedPdag()
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            WriteRulebase($"gen/{i / 20}/rules-{i:D3}.rulebase", $"rule=:generated {i} value %v{i}:number%\n");
+        }
+
+        var errors = new List<string>();
+        var ctx = NewContext(errors);
+        Assert.AreEqual(0, ctx.LoadSamplesFromDirectory(_root), string.Join("; ", errors));
+
+        AssertMatches(ctx, "generated 0 value 10", "v0", "10");
+        AssertMatches(ctx, "generated 123 value 55", "v123", "55");
+        AssertMatches(ctx, "generated 199 value 99", "v199", "99");
+    }
+
+    [TestMethod]
+    public void MissingDirectoryIsAnError()
+    {
+        var errors = new List<string>();
+        var ctx = NewContext(errors);
+        Assert.AreNotEqual(0, ctx.LoadSamplesFromDirectory(Path.Combine(_root, "does-not-exist")));
+        Assert.Contains(e => e.Contains("cannot open rulebase directory"), errors, string.Join("; ", errors));
+    }
+
+    [TestMethod]
+    public void NonRecursiveLoadIgnoresSubdirectories()
+    {
+        WriteRulebase("top.rulebase", "rule=:top %a:word%\n");
+        WriteRulebase("sub/inner.rulebase", "rule=:inner %b:word%\n");
+
+        var errors = new List<string>();
+        var ctx = NewContext(errors);
+        Assert.AreEqual(0, ctx.LoadSamplesFromDirectory(_root, recursive: false), string.Join("; ", errors));
+
+        AssertMatches(ctx, "top x", "a", "x");
+        Assert.AreNotEqual(0, ctx.Normalize("inner y", out JsonObject _), "subdirectory file was loaded despite recursive: false");
+    }
+
+    [TestMethod]
     public void PrefixDoesNotLeakBetweenFiles()
     {
         /* "10-..." sorts before "20-...", so a leaking prefix= would force
@@ -112,98 +189,21 @@ public class DirectoryRulebaseTests
         AssertMatches(ctx, "real thing", "a", "thing");
     }
 
-    [TestMethod]
-    public void HiddenFilesAreSkipped()
+    private static void AssertMatches(LogNormContext ctx, string message, string field, string expected)
     {
-        WriteRulebase("rules.rulebase", "rule=:real %a:word%\n");
-        File.WriteAllText(Path.Combine(_root, ".gitkeep"), "");
-
-        var errors = new List<string>();
-        var ctx = NewContext(errors);
-        Assert.AreEqual(0, ctx.LoadSamplesFromDirectory(_root), string.Join("; ", errors));
-
-        AssertMatches(ctx, "real thing", "a", "thing");
+        var r = ctx.Normalize(message, out JsonObject json);
+        Assert.AreEqual(0, r, $"message did not normalize: '{message}' -> {json.ToJsonString()}");
+        TestHelpers.AssertJsonContains(json, field, expected);
     }
 
-    [TestMethod]
-    public void NonRecursiveLoadIgnoresSubdirectories()
+    private static LogNormContext NewContext(List<string> errors)
+        => new() { ErrorCallback = errors.Add };
+
+    private string WriteRulebase(string relativePath, string body)
     {
-        WriteRulebase("top.rulebase", "rule=:top %a:word%\n");
-        WriteRulebase("sub/inner.rulebase", "rule=:inner %b:word%\n");
-
-        var errors = new List<string>();
-        var ctx = NewContext(errors);
-        Assert.AreEqual(0, ctx.LoadSamplesFromDirectory(_root, recursive: false), string.Join("; ", errors));
-
-        AssertMatches(ctx, "top x", "a", "x");
-        Assert.AreNotEqual(0, ctx.Normalize("inner y", out JsonObject _), "subdirectory file was loaded despite recursive: false");
-    }
-
-    [TestMethod]
-    public void FirstFailingFileStopsTheLoad()
-    {
-        WriteRulebase("10-good.rulebase", "rule=:good %a:word%\n");
-        File.WriteAllText(Path.Combine(_root, "20-bad.rulebase"), "no version header\n");
-
-        var errors = new List<string>();
-        var ctx = NewContext(errors);
-        Assert.AreNotEqual(0, ctx.LoadSamplesFromDirectory(_root));
-        Assert.Contains(e => e.Contains("20-bad.rulebase"), errors,
-            $"error should name the failing file, got: {string.Join("; ", errors)}");
-
-        /* rules loaded before the failure remain usable */
-        AssertMatches(ctx, "good x", "a", "x");
-    }
-
-    [TestMethod]
-    public void EmptyDirectoryIsAnError()
-    {
-        var errors = new List<string>();
-        var ctx = NewContext(errors);
-        Assert.AreNotEqual(0, ctx.LoadSamplesFromDirectory(_root));
-        Assert.Contains(e => e.Contains("no rulebase files"), errors, string.Join("; ", errors));
-    }
-
-    [TestMethod]
-    public void MissingDirectoryIsAnError()
-    {
-        var errors = new List<string>();
-        var ctx = NewContext(errors);
-        Assert.AreNotEqual(0, ctx.LoadSamplesFromDirectory(Path.Combine(_root, "does-not-exist")));
-        Assert.Contains(e => e.Contains("cannot open rulebase directory"), errors, string.Join("; ", errors));
-    }
-
-    [TestMethod]
-    public void IncludeLineMayNameADirectory()
-    {
-        WriteRulebase("extra/one.rulebase", "rule=:extra one %a:word%\n");
-        WriteRulebase("extra/two.rulebase", "rule=:extra two %b:word%\n");
-        var main = WriteRulebase("main.rulebase",
-            $"rule=:main %m:word%\ninclude={Path.Combine(_root, "extra")}\n");
-
-        var errors = new List<string>();
-        var ctx = NewContext(errors);
-        Assert.AreEqual(0, ctx.LoadSamples(main), string.Join("; ", errors));
-
-        AssertMatches(ctx, "main x", "m", "x");
-        AssertMatches(ctx, "extra one y", "a", "y");
-        AssertMatches(ctx, "extra two z", "b", "z");
-    }
-
-    [TestMethod]
-    public void ManyFilesBuildOneCombinedPdag()
-    {
-        for (var i = 0; i < 200; i++)
-        {
-            WriteRulebase($"gen/{i / 20}/rules-{i:D3}.rulebase", $"rule=:generated {i} value %v{i}:number%\n");
-        }
-
-        var errors = new List<string>();
-        var ctx = NewContext(errors);
-        Assert.AreEqual(0, ctx.LoadSamplesFromDirectory(_root), string.Join("; ", errors));
-
-        AssertMatches(ctx, "generated 0 value 10", "v0", "10");
-        AssertMatches(ctx, "generated 123 value 55", "v123", "55");
-        AssertMatches(ctx, "generated 199 value 99", "v199", "99");
+        var path = Path.Combine(_root, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "version=2\n" + body);
+        return path;
     }
 }

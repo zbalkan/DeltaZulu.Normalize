@@ -11,59 +11,6 @@ namespace DeltaZulu.Normalize.Parsers;
 /// </summary>
 internal static class RepeatParser
 {
-    /// <summary>Construct-time data: builder sub-graphs, compiled into the
-    /// snapshot arena (as <see cref="CompiledData"/>) by the PDAG compiler.</summary>
-    internal sealed class Data
-    {
-        public required Pdag Parser { get; init; }
-        public required Pdag WhileCond { get; init; }
-        public bool PermitMismatchInParser;
-        public bool FailOnDuplicate;
-    }
-
-    /// <summary>Runtime data: root node indices of the two sub-components
-    /// within the snapshot carried by the npb.</summary>
-    internal sealed class CompiledData
-    {
-        public int ParserRoot { get; init; }
-        public int WhileRoot { get; init; }
-        public bool PermitMismatchInParser;
-        public bool FailOnDuplicate;
-    }
-
-    /// <summary>
-    /// The "repeat" parser supports a "." field name only when its "parser"
-    /// part is a single parser definition, since otherwise there would be no
-    /// unambiguous way to decide which of several fields to place directly
-    /// into the array.
-    /// </summary>
-    private static bool ChkNoDupeDotInParserDefs(LogNormContext ctx, JsonNode? parsers)
-    {
-        var nParsers = 0;
-        var nDots = 0;
-        if (parsers is JsonArray arr)
-        {
-            foreach (var item in arr)
-            {
-                if (item is JsonObject obj && obj["name"] is JsonValue nameVal)
-                {
-                    ++nParsers;
-                    if (JsonText.GetLenientString(nameVal) == ".")
-                    {
-                        ++nDots;
-                    }
-                }
-            }
-        }
-        if (nParsers > 1 && nDots > 0)
-        {
-            ctx.Error("'repeat' parser supports dot name only if single parser is used " +
-                      $"in 'parser' part, invalid construct: {JsonText.ToCompactString(parsers)}");
-            return false;
-        }
-        return true;
-    }
-
     public static int Construct(LogNormContext ctx, JsonObject config, out object? pdata)
     {
         pdata = null;
@@ -139,7 +86,7 @@ internal static class RepeatParser
     }
 
     public static int Parse(Npb npb, ref int offs, object? pdata, string? parserName,
-        out int parsed, bool wantValue, ref JsonNode? value)
+            out int parsed, bool wantValue, ref JsonNode? value)
     {
         parsed = 0;
         var data = (CompiledData)pdata!;
@@ -215,5 +162,58 @@ internal static class RepeatParser
 
         npb.ParsedTo = parsedToSave;
         return 0;
+    }
+
+    /// <summary>
+    /// The "repeat" parser supports a "." field name only when its "parser"
+    /// part is a single parser definition, since otherwise there would be no
+    /// unambiguous way to decide which of several fields to place directly
+    /// into the array.
+    /// </summary>
+    private static bool ChkNoDupeDotInParserDefs(LogNormContext ctx, JsonNode? parsers)
+    {
+        var nParsers = 0;
+        var nDots = 0;
+        if (parsers is JsonArray arr)
+        {
+            foreach (var item in arr)
+            {
+                if (item is JsonObject obj && obj["name"] is JsonValue nameVal)
+                {
+                    ++nParsers;
+                    if (JsonText.GetLenientString(nameVal) == ".")
+                    {
+                        ++nDots;
+                    }
+                }
+            }
+        }
+        if (nParsers > 1 && nDots > 0)
+        {
+            ctx.Error("'repeat' parser supports dot name only if single parser is used " +
+                      $"in 'parser' part, invalid construct: {JsonText.ToCompactString(parsers)}");
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>Runtime data: root node indices of the two sub-components
+    /// within the snapshot carried by the npb.</summary>
+    internal sealed class CompiledData
+    {
+        public bool FailOnDuplicate;
+        public bool PermitMismatchInParser;
+        public int ParserRoot { get; init; }
+        public int WhileRoot { get; init; }
+    }
+
+    /// <summary>Construct-time data: builder sub-graphs, compiled into the
+    /// snapshot arena (as <see cref="CompiledData"/>) by the PDAG compiler.</summary>
+    internal sealed class Data
+    {
+        public bool FailOnDuplicate;
+        public bool PermitMismatchInParser;
+        public required Pdag Parser { get; init; }
+        public required Pdag WhileCond { get; init; }
     }
 }

@@ -8,11 +8,30 @@ namespace DeltaZulu.Normalize.Tests;
 [TestClass]
 public class NormalizeResultTests
 {
-    private static LogNormContext Load(string rulebase, LogNormOptions options = LogNormOptions.None)
+    [TestMethod]
+    public void EagerStructuredValues_SurviveTheFlatPath()
     {
-        var ctx = new LogNormContext { Options = options };
-        Assert.AreEqual(0, ctx.LoadSamplesFromString(rulebase));
-        return ctx;
+        var ctx = Load("rule=:data %fields:json%");
+        ctx.Normalize("""data {"a": 1, "b": [true, null]}""", out NormalizeResult result);
+
+        Assert.IsTrue(result.Matched);
+        Assert.IsFalse(result.TryGetRawText("fields", out _), "json motif is not a raw slice");
+        var obj = result.ToJsonObject();
+        Assert.AreEqual(1, obj["fields"]!["a"]!.GetValue<int>());
+        Assert.IsTrue(obj["fields"]!["b"]![0]!.GetValue<bool>());
+    }
+
+    [TestMethod]
+    public void FailedMatch_CarriesOriginalmsgAndUnparsedData()
+    {
+        var ctx = Load("rule=:hello %w:word%");
+        var r = ctx.Normalize("goodbye world", out NormalizeResult result);
+
+        Assert.AreNotEqual(0, r);
+        Assert.IsFalse(result.Matched);
+        Assert.IsTrue(result.TryGetRawText("originalmsg", out var orig));
+        Assert.AreEqual("goodbye world", orig.ToString());
+        Assert.IsTrue(result.Contains("unparsed-data"));
     }
 
     [TestMethod]
@@ -35,31 +54,40 @@ public class NormalizeResultTests
     }
 
     [TestMethod]
-    public void TryGetRawText_ReturnsSliceOfInputMessage()
+    public void NormalizeToString_MatchesLegacyJsonObjectPath()
     {
-        var ctx = Load("rule=:hello %first:word% %second:word%");
-        const string message = "hello foo bar";
-        ctx.Normalize(message, out NormalizeResult result);
+        var ctx = Load("""
+            rule=:a %w:word% n=%n:number% rest=%r:rest%
+            """, LogNormOptions.AddOriginalMessage);
 
-        Assert.IsTrue(result.TryGetRawText("first", out var text));
-        Assert.AreEqual("foo", text.ToString());
-        /* the memory is a genuine slice of the input, not a copy */
-        Assert.IsTrue(System.Runtime.InteropServices.MemoryMarshal.TryGetString(text, out var source, out var start, out var length));
-        Assert.AreSame(message, source);
-        Assert.AreEqual(6, start);
-        Assert.AreEqual(3, length);
-
-        Assert.IsFalse(result.TryGetRawText("missing", out _));
+        foreach (var message in new[] { "a x-é\"q\" n=12 rest=tail \\ end", "no match  here" })
+        {
+            var r1 = ctx.NormalizeToString(message, out var json);
+            ctx.Normalize(message, out JsonObject obj);
+            Assert.AreEqual(JsonText.ToCompactString(obj), json);
+            Assert.AreEqual(r1 == 0, !json.Contains("unparsed-data"));
+        }
     }
 
     [TestMethod]
-    public void TryGetRawText_FalseForConvertedValues()
+    public void Serialization_UsesMaterializedSnapshotAfterMutation()
     {
-        var ctx = Load("""rule=:n %num:number{"format":"number"}%""");
-        ctx.Normalize("n 42", out NormalizeResult result);
+        var ctx = Load("rule=:hello %first:word% %second:word%");
+        ctx.Normalize("hello foo bar", out NormalizeResult result);
 
-        Assert.IsFalse(result.TryGetRawText("num", out _), "number-formatted field is not a raw slice");
-        Assert.AreEqual(42, result.GetValue("num")!.GetValue<long>());
+        var obj = result.ToJsonObject();
+        obj["first"] = "modified";
+
+        Assert.AreEqual("modified", result.GetValue("first")!.GetValue<string>());
+        Assert.AreEqual("{\"second\":\"bar\",\"first\":\"modified\"}", result.ToJsonString());
+
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer, JsonText.CompactWriterOptions))
+        {
+            result.WriteTo(writer);
+        }
+
+        Assert.AreEqual(result.ToJsonString(), Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
     [TestMethod]
@@ -75,19 +103,6 @@ public class NormalizeResultTests
         Assert.IsTrue(JsonNode.DeepEquals(direct, obj1));
         /* GetValue reads from the cached object once materialized */
         Assert.AreEqual("foo", result.GetValue("first")!.GetValue<string>());
-    }
-
-    [TestMethod]
-    public void FailedMatch_CarriesOriginalmsgAndUnparsedData()
-    {
-        var ctx = Load("rule=:hello %w:word%");
-        var r = ctx.Normalize("goodbye world", out NormalizeResult result);
-
-        Assert.AreNotEqual(0, r);
-        Assert.IsFalse(result.Matched);
-        Assert.IsTrue(result.TryGetRawText("originalmsg", out var orig));
-        Assert.AreEqual("goodbye world", orig.ToString());
-        Assert.IsTrue(result.Contains("unparsed-data"));
     }
 
     [TestMethod]
@@ -114,6 +129,34 @@ public class NormalizeResultTests
     }
 
     [TestMethod]
+    public void TryGetRawText_FalseForConvertedValues()
+    {
+        var ctx = Load("""rule=:n %num:number{"format":"number"}%""");
+        ctx.Normalize("n 42", out NormalizeResult result);
+
+        Assert.IsFalse(result.TryGetRawText("num", out _), "number-formatted field is not a raw slice");
+        Assert.AreEqual(42, result.GetValue("num")!.GetValue<long>());
+    }
+
+    [TestMethod]
+    public void TryGetRawText_ReturnsSliceOfInputMessage()
+    {
+        var ctx = Load("rule=:hello %first:word% %second:word%");
+        const string message = "hello foo bar";
+        ctx.Normalize(message, out NormalizeResult result);
+
+        Assert.IsTrue(result.TryGetRawText("first", out var text));
+        Assert.AreEqual("foo", text.ToString());
+        /* the memory is a genuine slice of the input, not a copy */
+        Assert.IsTrue(System.Runtime.InteropServices.MemoryMarshal.TryGetString(text, out var source, out var start, out var length));
+        Assert.AreSame(message, source);
+        Assert.AreEqual(6, start);
+        Assert.AreEqual(3, length);
+
+        Assert.IsFalse(result.TryGetRawText("missing", out _));
+    }
+
+    [TestMethod]
     public void WriteTo_ProducesSameBytesAsToJsonString()
     {
         var ctx = Load("rule=:hello %first:word% %second:word%");
@@ -128,54 +171,10 @@ public class NormalizeResultTests
         Assert.AreEqual(result.ToJsonString(), Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
-    [TestMethod]
-    public void NormalizeToString_MatchesLegacyJsonObjectPath()
+    private static LogNormContext Load(string rulebase, LogNormOptions options = LogNormOptions.None)
     {
-        var ctx = Load("""
-            rule=:a %w:word% n=%n:number% rest=%r:rest%
-            """, LogNormOptions.AddOriginalMessage);
-
-        foreach (var message in new[] { "a x-é\"q\" n=12 rest=tail \\ end", "no match  here" })
-        {
-            var r1 = ctx.NormalizeToString(message, out var json);
-            ctx.Normalize(message, out JsonObject obj);
-            Assert.AreEqual(JsonText.ToCompactString(obj), json);
-            Assert.AreEqual(r1 == 0, !json.Contains("unparsed-data"));
-        }
+        var ctx = new LogNormContext { Options = options };
+        Assert.AreEqual(0, ctx.LoadSamplesFromString(rulebase));
+        return ctx;
     }
-
-    [TestMethod]
-    public void EagerStructuredValues_SurviveTheFlatPath()
-    {
-        var ctx = Load("rule=:data %fields:json%");
-        ctx.Normalize("""data {"a": 1, "b": [true, null]}""", out NormalizeResult result);
-
-        Assert.IsTrue(result.Matched);
-        Assert.IsFalse(result.TryGetRawText("fields", out _), "json motif is not a raw slice");
-        var obj = result.ToJsonObject();
-        Assert.AreEqual(1, obj["fields"]!["a"]!.GetValue<int>());
-        Assert.IsTrue(obj["fields"]!["b"]![0]!.GetValue<bool>());
-    }
-
-    [TestMethod]
-    public void Serialization_UsesMaterializedSnapshotAfterMutation()
-    {
-        var ctx = Load("rule=:hello %first:word% %second:word%");
-        ctx.Normalize("hello foo bar", out NormalizeResult result);
-
-        var obj = result.ToJsonObject();
-        obj["first"] = "modified";
-
-        Assert.AreEqual("modified", result.GetValue("first")!.GetValue<string>());
-        Assert.AreEqual("{\"second\":\"bar\",\"first\":\"modified\"}", result.ToJsonString());
-
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer, JsonText.CompactWriterOptions))
-        {
-            result.WriteTo(writer);
-        }
-
-        Assert.AreEqual(result.ToJsonString(), Encoding.UTF8.GetString(buffer.WrittenSpan));
-    }
-
 }

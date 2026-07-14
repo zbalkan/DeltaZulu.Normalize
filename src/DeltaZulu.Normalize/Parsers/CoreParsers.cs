@@ -12,52 +12,71 @@ namespace DeltaZulu.Normalize.Parsers;
 /// </summary>
 internal static class CoreParsers
 {
+    private static readonly SearchValues<char> AlphaChars =
+            SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
+
     /// <summary>The C-locale isspace() set (see TextRules.IsSpace).</summary>
     private static readonly SearchValues<char> SpaceChars = SearchValues.Create(" \t\n\v\f\r");
 
-    private static readonly SearchValues<char> AlphaChars =
-        SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
-
-    /// <summary>All whitespace up to the first non-whitespace char; must start on whitespace.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int ParseWhitespace(Npb npb, ref int offs, object? pdata, string? parserName,
-        out int parsed, bool wantValue, ref JsonNode? value)
+    public static int ConstructCharSeparated(LogNormContext ctx, JsonObject config, out object? pdata)
     {
-        parsed = 0;
-        if (!TextRules.IsSpace(npb.At(offs)))
+        pdata = null;
+        if (config["extradata"] is not JsonValue ed)
         {
-            return ErrorCodes.WrongParser;
+            ctx.Error("char-separated type needs 'extradata' parameter");
+            return ErrorCodes.BadConfig;
         }
-
-        var rem = npb.Str.AsSpan(offs + 1);
-        var idx = rem.IndexOfAnyExcept(SpaceChars);
-        parsed = 1 + (idx < 0 ? rem.Length : idx);
-        if (wantValue)
-        {
-            value = JsonValue.Create(npb.Str.Substring(offs, parsed));
-        }
-
+        pdata = new CharSeparatedData { TermChars = SearchValues.Create(JsonText.GetLenientString(ed)!) };
         return 0;
     }
 
-    /// <summary>A space-delimited entity (fails only when positioned on a space).</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int ParseWord(Npb npb, ref int offs, object? pdata, string? parserName,
-        out int parsed, bool wantValue, ref JsonNode? value)
+    public static int ConstructCharTo(LogNormContext ctx, JsonObject config, out object? pdata)
     {
-        var rem = npb.Str.AsSpan(offs);
-        var idx = rem.IndexOf(' ');
-        parsed = idx < 0 ? rem.Length : idx;
-        if (parsed == 0)
+        pdata = null;
+        if (config["extradata"] is not JsonValue ed)
         {
-            return ErrorCodes.WrongParser;
+            ctx.Error("char-to type needs 'extradata' parameter");
+            return ErrorCodes.BadConfig;
         }
+        pdata = new CharToData { TermChars = SearchValues.Create(JsonText.GetLenientString(ed)!) };
+        return 0;
+    }
 
-        if (wantValue)
+    public static int ConstructOpQuotedString(LogNormContext ctx, JsonObject config, out object? pdata)
+    {
+        pdata = null;
+        var data = new OpQuotedStringData();
+        if (config.TryGetPropertyValue("escape", out var obj))
         {
-            value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+            if (obj is JsonValue v && v.TryGetValue(out bool b))
+            {
+                data.Escape = b;
+            }
+            else
+            {
+                ctx.Error("op-quoted-string's 'escape' field should be boolean");
+                return ErrorCodes.BadConfig;
+            }
         }
+        pdata = data;
+        return 0;
+    }
 
+    public static int ConstructStringTo(LogNormContext ctx, JsonObject config, out object? pdata)
+    {
+        pdata = null;
+        if (config["extradata"] is not JsonValue ed)
+        {
+            ctx.Error("string-to type needs 'extradata' parameter");
+            return ErrorCodes.BadConfig;
+        }
+        var toFind = JsonText.GetLenientString(ed)!;
+        if (toFind.Length == 0)
+        {
+            ctx.Error("string-to type needs non-empty 'extradata' parameter");
+            return ErrorCodes.BadConfig;
+        }
+        pdata = new StringToData { ToFind = toFind };
         return 0;
     }
 
@@ -82,93 +101,20 @@ internal static class CoreParsers
         return 0;
     }
 
-    /// <summary>Everything to end-of-string; always succeeds (even consuming zero chars).</summary>
+    /// <summary>Everything up to a terminator char or end-of-string; always succeeds.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int ParseRest(Npb npb, ref int offs, object? pdata, string? parserName,
+    public static int ParseCharSeparated(Npb npb, ref int offs, object? pdata, string? parserName,
         out int parsed, bool wantValue, ref JsonNode? value)
     {
-        parsed = npb.StrLen - offs;
+        var data = (CharSeparatedData)pdata!;
+        var rem = npb.Str.AsSpan(offs);
+        var idx = rem.IndexOfAny(data.TermChars);
+        parsed = idx < 0 ? rem.Length : idx;
         if (wantValue)
         {
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
         }
 
-        return 0;
-    }
-
-    /* ---------- string-to ---------- */
-
-    internal sealed class StringToData
-    {
-        public required string ToFind { get; init; }
-    }
-
-    public static int ConstructStringTo(LogNormContext ctx, JsonObject config, out object? pdata)
-    {
-        pdata = null;
-        if (config["extradata"] is not JsonValue ed)
-        {
-            ctx.Error("string-to type needs 'extradata' parameter");
-            return ErrorCodes.BadConfig;
-        }
-        var toFind = JsonText.GetLenientString(ed)!;
-        if (toFind.Length == 0)
-        {
-            ctx.Error("string-to type needs non-empty 'extradata' parameter");
-            return ErrorCodes.BadConfig;
-        }
-        pdata = new StringToData { ToFind = toFind };
-        return 0;
-    }
-
-    /// <summary>Everything up to a specific search string.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int ParseStringTo(Npb npb, ref int offs, object? pdata, string? parserName,
-        out int parsed, bool wantValue, ref JsonNode? value)
-    {
-        parsed = 0;
-        var toFind = ((StringToData)pdata!).ToFind;
-
-        /* the C scanner's inner loop needs a char *after* toFind[0] to ever
-         * set the found flag, so a single-char search string never matches;
-         * kept faithfully. The match can also never start at offs (the C
-         * loop increments before comparing). */
-        if (toFind.Length < 2 || offs >= npb.StrLen)
-        {
-            return ErrorCodes.WrongParser;
-        }
-
-        var idx = npb.Str.IndexOf(toFind, offs + 1, StringComparison.Ordinal);
-        if (idx < 0)
-        {
-            return ErrorCodes.WrongParser;
-        }
-
-        parsed = idx - offs;
-        if (wantValue)
-        {
-            value = JsonValue.Create(npb.Str.Substring(offs, parsed));
-        }
-
-        return 0;
-    }
-
-    /* ---------- char-to ---------- */
-
-    internal sealed class CharToData
-    {
-        public required SearchValues<char> TermChars { get; init; }
-    }
-
-    public static int ConstructCharTo(LogNormContext ctx, JsonObject config, out object? pdata)
-    {
-        pdata = null;
-        if (config["extradata"] is not JsonValue ed)
-        {
-            ctx.Error("char-to type needs 'extradata' parameter");
-            return ErrorCodes.BadConfig;
-        }
-        pdata = new CharToData { TermChars = SearchValues.Create(JsonText.GetLenientString(ed)!) };
         return 0;
     }
 
@@ -191,95 +137,6 @@ internal static class CoreParsers
             value = JsonValue.Create(npb.Str.Substring(offs, parsed));
         }
 
-        return 0;
-    }
-
-    /* ---------- char-sep ---------- */
-
-    internal sealed class CharSeparatedData
-    {
-        public required SearchValues<char> TermChars { get; init; }
-    }
-
-    public static int ConstructCharSeparated(LogNormContext ctx, JsonObject config, out object? pdata)
-    {
-        pdata = null;
-        if (config["extradata"] is not JsonValue ed)
-        {
-            ctx.Error("char-separated type needs 'extradata' parameter");
-            return ErrorCodes.BadConfig;
-        }
-        pdata = new CharSeparatedData { TermChars = SearchValues.Create(JsonText.GetLenientString(ed)!) };
-        return 0;
-    }
-
-    /// <summary>Everything up to a terminator char or end-of-string; always succeeds.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int ParseCharSeparated(Npb npb, ref int offs, object? pdata, string? parserName,
-        out int parsed, bool wantValue, ref JsonNode? value)
-    {
-        var data = (CharSeparatedData)pdata!;
-        var rem = npb.Str.AsSpan(offs);
-        var idx = rem.IndexOfAny(data.TermChars);
-        parsed = idx < 0 ? rem.Length : idx;
-        if (wantValue)
-        {
-            value = JsonValue.Create(npb.Str.Substring(offs, parsed));
-        }
-
-        return 0;
-    }
-
-    /* ---------- quoted strings ---------- */
-
-    /// <summary>A double-quoted string without escape support; quotes are stripped.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int ParseQuotedString(Npb npb, ref int offs, object? pdata, string? parserName,
-        out int parsed, bool wantValue, ref JsonNode? value)
-    {
-        parsed = 0;
-        if (offs + 2 > npb.StrLen || npb.Str[offs] != '"')
-        {
-            return ErrorCodes.WrongParser;
-        }
-
-        var idx = npb.Str.AsSpan(offs + 1).IndexOf('"');
-        if (idx < 0)
-        {
-            return ErrorCodes.WrongParser;
-        }
-
-        parsed = idx + 2; /* both quotes are consumed */
-        if (wantValue)
-        {
-            value = JsonValue.Create(npb.Str.Substring(offs + 1, parsed - 2));
-        }
-
-        return 0;
-    }
-
-    internal sealed class OpQuotedStringData
-    {
-        public bool Escape;
-    }
-
-    public static int ConstructOpQuotedString(LogNormContext ctx, JsonObject config, out object? pdata)
-    {
-        pdata = null;
-        var data = new OpQuotedStringData();
-        if (config.TryGetPropertyValue("escape", out var obj))
-        {
-            if (obj is JsonValue v && v.TryGetValue(out bool b))
-            {
-                data.Escape = b;
-            }
-            else
-            {
-                ctx.Error("op-quoted-string's 'escape' field should be boolean");
-                return ErrorCodes.BadConfig;
-            }
-        }
-        pdata = data;
         return 0;
     }
 
@@ -371,4 +228,145 @@ internal static class CoreParsers
 
         return 0;
     }
+
+    /// <summary>A double-quoted string without escape support; quotes are stripped.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int ParseQuotedString(Npb npb, ref int offs, object? pdata, string? parserName,
+        out int parsed, bool wantValue, ref JsonNode? value)
+    {
+        parsed = 0;
+        if (offs + 2 > npb.StrLen || npb.Str[offs] != '"')
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        var idx = npb.Str.AsSpan(offs + 1).IndexOf('"');
+        if (idx < 0)
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        parsed = idx + 2; /* both quotes are consumed */
+        if (wantValue)
+        {
+            value = JsonValue.Create(npb.Str.Substring(offs + 1, parsed - 2));
+        }
+
+        return 0;
+    }
+
+    /// <summary>Everything to end-of-string; always succeeds (even consuming zero chars).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int ParseRest(Npb npb, ref int offs, object? pdata, string? parserName,
+        out int parsed, bool wantValue, ref JsonNode? value)
+    {
+        parsed = npb.StrLen - offs;
+        if (wantValue)
+        {
+            value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
+        return 0;
+    }
+
+    /// <summary>Everything up to a specific search string.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int ParseStringTo(Npb npb, ref int offs, object? pdata, string? parserName,
+        out int parsed, bool wantValue, ref JsonNode? value)
+    {
+        parsed = 0;
+        var toFind = ((StringToData)pdata!).ToFind;
+
+        /* the C scanner's inner loop needs a char *after* toFind[0] to ever
+         * set the found flag, so a single-char search string never matches;
+         * kept faithfully. The match can also never start at offs (the C
+         * loop increments before comparing). */
+        if (toFind.Length < 2 || offs >= npb.StrLen)
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        var idx = npb.Str.IndexOf(toFind, offs + 1, StringComparison.Ordinal);
+        if (idx < 0)
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        parsed = idx - offs;
+        if (wantValue)
+        {
+            value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
+        return 0;
+    }
+
+    /// <summary>All whitespace up to the first non-whitespace char; must start on whitespace.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int ParseWhitespace(Npb npb, ref int offs, object? pdata, string? parserName,
+        out int parsed, bool wantValue, ref JsonNode? value)
+    {
+        parsed = 0;
+        if (!TextRules.IsSpace(npb.At(offs)))
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        var rem = npb.Str.AsSpan(offs + 1);
+        var idx = rem.IndexOfAnyExcept(SpaceChars);
+        parsed = 1 + (idx < 0 ? rem.Length : idx);
+        if (wantValue)
+        {
+            value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
+        return 0;
+    }
+
+    /// <summary>A space-delimited entity (fails only when positioned on a space).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int ParseWord(Npb npb, ref int offs, object? pdata, string? parserName,
+        out int parsed, bool wantValue, ref JsonNode? value)
+    {
+        var rem = npb.Str.AsSpan(offs);
+        var idx = rem.IndexOf(' ');
+        parsed = idx < 0 ? rem.Length : idx;
+        if (parsed == 0)
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        if (wantValue)
+        {
+            value = JsonValue.Create(npb.Str.Substring(offs, parsed));
+        }
+
+        return 0;
+    }
+
+    /* ---------- string-to ---------- */
+
+    internal sealed class CharSeparatedData
+    {
+        public required SearchValues<char> TermChars { get; init; }
+    }
+
+    internal sealed class CharToData
+    {
+        public required SearchValues<char> TermChars { get; init; }
+    }
+
+    internal sealed class OpQuotedStringData
+    {
+        public bool Escape;
+    }
+
+    internal sealed class StringToData
+    {
+        public required string ToFind { get; init; }
+    }
+
+    /* ---------- char-to ---------- */
+    /* ---------- char-sep ---------- */
+    /* ---------- quoted strings ---------- */
 }

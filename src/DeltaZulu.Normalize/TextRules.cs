@@ -14,23 +14,6 @@ namespace DeltaZulu.Normalize;
 internal static class TextRules
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool IsDigit(char c) => c >= '0' && c <= '9';
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool IsSpace(char c)
-        => c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool IsAlpha(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool IsAlnum(char c) => IsAlpha(c) || IsDigit(c);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool IsHexDigit(char c)
-        => IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int HexVal(char c)
     {
         if (IsDigit(c))
@@ -45,6 +28,23 @@ internal static class TextRules
 
         return c - 'A' + 10;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsAlnum(char c) => IsAlpha(c) || IsDigit(c);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsAlpha(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsDigit(char c) => c >= '0' && c <= '9';
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsHexDigit(char c)
+        => IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsSpace(char c)
+        => c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
 
     /// <summary>
     /// Unescape a rulebase literal the way libestr's es_unescapeStr does:

@@ -7,11 +7,59 @@ namespace DeltaZulu.Normalize.Tests;
 public class StructuredParserTests
 {
     [TestMethod]
-    public void Json_ExtractsEmbeddedObject()
+    public void Cef_HandlesEscapedPipeAndEqualsAndBackslash()
     {
-        var (r, j) = TestHelpers.Normalize("rule=:%field:json%", """{"f1": "1", "f2": 2}""");
+        var (r, j) = TestHelpers.Normalize("rule=:%f:cef%",
+            "CEF:0|Vendor|Product\\|1\\|\\\\|Version|Signature ID|some name|Severity| aa=field1 bb=this is a name\\=value cc=field 3");
         Assert.AreEqual(0, r);
-        AssertJsonEquals("""{ "field": { "f1": "1", "f2": 2 } }""", j);
+        AssertJsonEquals("""
+            { "f": { "DeviceVendor": "Vendor", "DeviceProduct": "Product|1|\\", "DeviceVersion": "Version",
+                     "SignatureID": "Signature ID", "Name": "some name", "Severity": "Severity",
+                     "Extensions": { "aa": "field1", "bb": "this is a name=value", "cc": "field 3" } } }
+            """, j);
+    }
+
+    [TestMethod]
+    public void Cef_ParsesHeaderAndExtensions()
+    {
+        var (r, j) = TestHelpers.Normalize("rule=:%f:cef%",
+            "CEF:0|Vendor|Product|Version|Signature ID|some name|Severity| aa=field1 bb=this is a value cc=field 3");
+        Assert.AreEqual(0, r);
+        AssertJsonEquals("""
+            { "f": { "DeviceVendor": "Vendor", "DeviceProduct": "Product", "DeviceVersion": "Version",
+                     "SignatureID": "Signature ID", "Name": "some name", "Severity": "Severity",
+                     "Extensions": { "aa": "field1", "bb": "this is a value", "cc": "field 3" } } }
+            """, j);
+    }
+
+    [TestMethod]
+    public void Cef_RejectsDanglingBackslashAtEndOfLastExtensionValue()
+    {
+        /* a trailing, unfinished escape in the very last extension value must
+         * be rejected, not crash the extraction with an out-of-range access */
+        var (r, _) = TestHelpers.Normalize("rule=:%f:cef%",
+            "CEF:0|Vendor|Product|Version|Signature ID|some name|Severity| bb=value\\");
+        Assert.AreNotEqual(0, r);
+    }
+
+    [TestMethod]
+    public void Cef_RejectsInvalidExtensionPunctuationAndEscape()
+    {
+        var (r1, _) = TestHelpers.Normalize("rule=:%f:cef%",
+            "CEF:0|Vendor|Product|Version|Signature ID|some name|Severity| n,me=value");
+        Assert.AreNotEqual(0, r1);
+
+        var (r2, _) = TestHelpers.Normalize("rule=:%f:cef%",
+            "CEF:0|Vendor|Product|Version|Signature ID|some name|Severity| name=v\\alue");
+        Assert.AreNotEqual(0, r2);
+    }
+
+    [TestMethod]
+    public void CheckpointLea_ParsesSemicolonTerminatedFields()
+    {
+        var (r, j) = TestHelpers.Normalize("rule=:%f:checkpoint-lea%", "tcp_flags: RST-ACK; src: 192.168.0.1;");
+        Assert.AreEqual(0, r);
+        AssertJsonEquals("""{ "f": { "tcp_flags": "RST-ACK", "src": "192.168.0.1" } }""", j);
     }
 
     [TestMethod]
@@ -30,11 +78,11 @@ public class StructuredParserTests
     }
 
     [TestMethod]
-    public void Json_TwoFieldsInOneRule()
+    public void Json_ExtractsEmbeddedObject()
     {
-        var (r, j) = TestHelpers.Normalize("rule=:%field1:json%-%field2:json%", """{"f1": "1"}-{"f2": 2}""");
+        var (r, j) = TestHelpers.Normalize("rule=:%field:json%", """{"f1": "1", "f2": 2}""");
         Assert.AreEqual(0, r);
-        AssertJsonEquals("""{ "field2": { "f2": 2 }, "field1": { "f1": "1" } }""", j);
+        AssertJsonEquals("""{ "field": { "f1": "1", "f2": 2 } }""", j);
     }
 
     [TestMethod]
@@ -50,59 +98,11 @@ public class StructuredParserTests
     }
 
     [TestMethod]
-    public void Cef_ParsesHeaderAndExtensions()
+    public void Json_TwoFieldsInOneRule()
     {
-        var (r, j) = TestHelpers.Normalize("rule=:%f:cef%",
-            "CEF:0|Vendor|Product|Version|Signature ID|some name|Severity| aa=field1 bb=this is a value cc=field 3");
+        var (r, j) = TestHelpers.Normalize("rule=:%field1:json%-%field2:json%", """{"f1": "1"}-{"f2": 2}""");
         Assert.AreEqual(0, r);
-        AssertJsonEquals("""
-            { "f": { "DeviceVendor": "Vendor", "DeviceProduct": "Product", "DeviceVersion": "Version",
-                     "SignatureID": "Signature ID", "Name": "some name", "Severity": "Severity",
-                     "Extensions": { "aa": "field1", "bb": "this is a value", "cc": "field 3" } } }
-            """, j);
-    }
-
-    [TestMethod]
-    public void Cef_HandlesEscapedPipeAndEqualsAndBackslash()
-    {
-        var (r, j) = TestHelpers.Normalize("rule=:%f:cef%",
-            "CEF:0|Vendor|Product\\|1\\|\\\\|Version|Signature ID|some name|Severity| aa=field1 bb=this is a name\\=value cc=field 3");
-        Assert.AreEqual(0, r);
-        AssertJsonEquals("""
-            { "f": { "DeviceVendor": "Vendor", "DeviceProduct": "Product|1|\\", "DeviceVersion": "Version",
-                     "SignatureID": "Signature ID", "Name": "some name", "Severity": "Severity",
-                     "Extensions": { "aa": "field1", "bb": "this is a name=value", "cc": "field 3" } } }
-            """, j);
-    }
-
-    [TestMethod]
-    public void Cef_RejectsInvalidExtensionPunctuationAndEscape()
-    {
-        var (r1, _) = TestHelpers.Normalize("rule=:%f:cef%",
-            "CEF:0|Vendor|Product|Version|Signature ID|some name|Severity| n,me=value");
-        Assert.AreNotEqual(0, r1);
-
-        var (r2, _) = TestHelpers.Normalize("rule=:%f:cef%",
-            "CEF:0|Vendor|Product|Version|Signature ID|some name|Severity| name=v\\alue");
-        Assert.AreNotEqual(0, r2);
-    }
-
-    [TestMethod]
-    public void Cef_RejectsDanglingBackslashAtEndOfLastExtensionValue()
-    {
-        /* a trailing, unfinished escape in the very last extension value must
-         * be rejected, not crash the extraction with an out-of-range access */
-        var (r, _) = TestHelpers.Normalize("rule=:%f:cef%",
-            "CEF:0|Vendor|Product|Version|Signature ID|some name|Severity| bb=value\\");
-        Assert.AreNotEqual(0, r);
-    }
-
-    [TestMethod]
-    public void CheckpointLea_ParsesSemicolonTerminatedFields()
-    {
-        var (r, j) = TestHelpers.Normalize("rule=:%f:checkpoint-lea%", "tcp_flags: RST-ACK; src: 192.168.0.1;");
-        Assert.AreEqual(0, r);
-        AssertJsonEquals("""{ "f": { "tcp_flags": "RST-ACK", "src": "192.168.0.1" } }""", j);
+        AssertJsonEquals("""{ "field2": { "f2": 2 }, "field1": { "f1": "1" } }""", j);
     }
 
     [TestMethod]

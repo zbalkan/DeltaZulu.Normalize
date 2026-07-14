@@ -16,42 +16,7 @@ namespace DeltaZulu.Normalize.Tests;
 [TestClass]
 public class FieldCollectorPoolingTests
 {
-    [TestMethod]
-    public void RepeatedCalls_DoNotLeakFieldsAcrossPooledArrayReuse()
-    {
-        var ctx = new LogNormContext();
-        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:a %f:word%"));
-
-        for (var i = 0; i < 50; i++)
-        {
-            var msg = $"a value{i}";
-            Assert.AreEqual(0, ctx.Normalize(msg, out JsonObject j));
-            Assert.AreEqual(1, j.Count, $"iteration {i}: stale fields from a previous call leaked in: {j.ToJsonString()}");
-            Assert.AreEqual($"value{i}", j["f"]!.GetValue<string>());
-        }
-    }
-
-    [TestMethod]
-    public void MoreFieldsThanPooledCapacity_GrowsAndReturnsCorrectResult()
-    {
-        /* ArrayPool<T>.Shared buckets round a Rent(4) request up to its
-         * smallest bucket (16 entries), so a handful of extra fields is not
-         * enough to force Grow() - the test must exceed that real bucket
-         * size, not just the requested InitialCapacity, to actually drive
-         * the pooled-array-returned-mid-flight / heap-array-fallback path
-         * and the double-return safeguard. */
-        const int fieldCount = 20;
-        var ctx = new LogNormContext();
-        var fields = string.Join(" ", Enumerable.Range(1, fieldCount).Select(i => $"%f{i}:word%"));
-        Assert.AreEqual(0, ctx.LoadSamplesFromString($"rule=:a {fields}"));
-
-        var msg = "a " + string.Join(" ", Enumerable.Range(1, fieldCount));
-        Assert.AreEqual(0, ctx.Normalize(msg, out JsonObject j));
-        for (var i = 1; i <= fieldCount; i++)
-        {
-            Assert.AreEqual(i.ToString(), j[$"f{i}"]!.GetValue<string>());
-        }
-    }
+    public required TestContext TestContext { get; set; }
 
     [TestMethod]
     public void ConcurrentNormalizeCalls_DoNotCorruptEachOthersResults()
@@ -96,5 +61,40 @@ public class FieldCollectorPoolingTests
         }
     }
 
-    public TestContext TestContext { get; set; }
+    [TestMethod]
+    public void MoreFieldsThanPooledCapacity_GrowsAndReturnsCorrectResult()
+    {
+        /* ArrayPool<T>.Shared buckets round a Rent(4) request up to its
+         * smallest bucket (16 entries), so a handful of extra fields is not
+         * enough to force Grow() - the test must exceed that real bucket
+         * size, not just the requested InitialCapacity, to actually drive
+         * the pooled-array-returned-mid-flight / heap-array-fallback path
+         * and the double-return safeguard. */
+        const int fieldCount = 20;
+        var ctx = new LogNormContext();
+        var fields = string.Join(" ", Enumerable.Range(1, fieldCount).Select(i => $"%f{i}:word%"));
+        Assert.AreEqual(0, ctx.LoadSamplesFromString($"rule=:a {fields}"));
+
+        var msg = "a " + string.Join(" ", Enumerable.Range(1, fieldCount));
+        Assert.AreEqual(0, ctx.Normalize(msg, out JsonObject j));
+        for (var i = 1; i <= fieldCount; i++)
+        {
+            Assert.AreEqual(i.ToString(), j[$"f{i}"]!.GetValue<string>());
+        }
+    }
+
+    [TestMethod]
+    public void RepeatedCalls_DoNotLeakFieldsAcrossPooledArrayReuse()
+    {
+        var ctx = new LogNormContext();
+        Assert.AreEqual(0, ctx.LoadSamplesFromString("rule=:a %f:word%"));
+
+        for (var i = 0; i < 50; i++)
+        {
+            var msg = $"a value{i}";
+            Assert.AreEqual(0, ctx.Normalize(msg, out JsonObject j));
+            Assert.AreEqual(1, j.Count, $"iteration {i}: stale fields from a previous call leaked in: {j.ToJsonString()}");
+            Assert.AreEqual($"value{i}", j["f"]!.GetValue<string>());
+        }
+    }
 }

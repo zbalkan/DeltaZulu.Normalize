@@ -19,6 +19,20 @@ namespace DeltaZulu.Normalize;
 /// </summary>
 internal static class PdagBuilder
 {
+    private const int ModeAlternative = 1;
+
+    private const int ModeSeq = 0;
+
+    /// <summary>
+    /// Add a parser config to the DAG at <paramref name="pdag"/> and advance
+    /// <paramref name="pdag"/> to the following node (port of ln_pdagAddParser).
+    /// </summary>
+    public static int AddParser(LogNormContext ctx, ref Pdag pdag, JsonNode prscnf)
+    {
+        Pdag? nextnode = null;
+        return AddParserInternal(ctx, ref pdag, ModeSeq, prscnf, ref nextnode);
+    }
+
     /// <summary>
     /// Find a user-defined type component by name, optionally creating it.
     /// Returns the type index, or -1 when not found (and not adding).
@@ -167,62 +181,6 @@ internal static class PdagBuilder
         return 0;
     }
 
-    private const int ModeSeq = 0;
-    private const int ModeAlternative = 1;
-
-    /// <summary>Add an array of parser configs, either as a sequence or as alternatives.</summary>
-    private static int AddParsers(LogNormContext ctx, JsonArray prscnf, int mode, ref Pdag pdag, ref Pdag? pNextnode)
-    {
-        var dag = pdag;
-        var nextnode = pNextnode;
-
-        foreach (var item in prscnf)
-        {
-            int r;
-            if (item is JsonArray arr)
-            {
-                var localDag = dag;
-                r = AddParserInternal(ctx, ref localDag, mode, arr, ref nextnode);
-                if (r != 0)
-                {
-                    return r;
-                }
-
-                if (mode == ModeSeq)
-                {
-                    dag = localDag;
-                }
-            }
-            else if (item is JsonObject obj)
-            {
-                r = AddParserInternal(ctx, ref dag, mode, obj, ref nextnode);
-                if (r != 0)
-                {
-                    return r;
-                }
-            }
-            else
-            {
-                ctx.Error($"bug: parser config entry of wrong type: {JsonText.ToCompactString(item)}");
-                return ErrorCodes.BadConfig;
-            }
-            if (mode == ModeSeq)
-            {
-                dag = nextnode!;
-                pNextnode = nextnode;
-                nextnode = null;
-            }
-        }
-
-        if (mode != ModeSeq)
-        {
-            dag = nextnode!;
-        }
-
-        pdag = dag;
-        return 0;
-    }
-
     /// <summary>
     /// Add a parser config (object or array) to the DAG, advancing
     /// <paramref name="pdag"/> to the node reached after it. Handles the
@@ -278,13 +236,56 @@ internal static class PdagBuilder
         return 0;
     }
 
-    /// <summary>
-    /// Add a parser config to the DAG at <paramref name="pdag"/> and advance
-    /// <paramref name="pdag"/> to the following node (port of ln_pdagAddParser).
-    /// </summary>
-    public static int AddParser(LogNormContext ctx, ref Pdag pdag, JsonNode prscnf)
+    /// <summary>Add an array of parser configs, either as a sequence or as alternatives.</summary>
+    private static int AddParsers(LogNormContext ctx, JsonArray prscnf, int mode, ref Pdag pdag, ref Pdag? pNextnode)
     {
-        Pdag? nextnode = null;
-        return AddParserInternal(ctx, ref pdag, ModeSeq, prscnf, ref nextnode);
+        var dag = pdag;
+        var nextnode = pNextnode;
+
+        foreach (var item in prscnf)
+        {
+            int r;
+            if (item is JsonArray arr)
+            {
+                var localDag = dag;
+                r = AddParserInternal(ctx, ref localDag, mode, arr, ref nextnode);
+                if (r != 0)
+                {
+                    return r;
+                }
+
+                if (mode == ModeSeq)
+                {
+                    dag = localDag;
+                }
+            }
+            else if (item is JsonObject obj)
+            {
+                r = AddParserInternal(ctx, ref dag, mode, obj, ref nextnode);
+                if (r != 0)
+                {
+                    return r;
+                }
+            }
+            else
+            {
+                ctx.Error($"bug: parser config entry of wrong type: {JsonText.ToCompactString(item)}");
+                return ErrorCodes.BadConfig;
+            }
+            if (mode == ModeSeq)
+            {
+                dag = nextnode!;
+                pNextnode = nextnode;
+                nextnode = null;
+            }
+        }
+
+        if (mode != ModeSeq)
+        {
+            dag = nextnode!;
+        }
+
+        pdag = dag;
+        return 0;
     }
 }

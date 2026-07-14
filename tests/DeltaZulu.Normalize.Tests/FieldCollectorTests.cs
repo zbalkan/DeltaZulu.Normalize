@@ -8,15 +8,42 @@ namespace DeltaZulu.Normalize.Tests;
 [TestClass]
 public class FieldCollectorTests
 {
-    private static string WriteToString(FieldCollector c)
+    [TestMethod]
+    public void FieldValue_DefaultIsNullKind()
     {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            c.WriteTo(writer);
-        }
+        FieldValue v = default;
+        Assert.AreEqual(FieldValueKind.Null, v.Kind);
+        Assert.IsNull(v.ToJsonNode());
+        Assert.AreEqual(FieldValueKind.Null, FieldValue.Node(null).Kind);
+    }
 
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    [TestMethod]
+    public void FieldValue_FullStringSpanMaterializesOriginalInstance()
+    {
+        const string source = "the whole message";
+        var v = FieldValue.Span(source, 0, source.Length);
+        var node = v.ToJsonNode();
+        Assert.IsTrue(ReferenceEquals(source, node!.GetValue<string>()));
+    }
+
+    [TestMethod]
+    public void FieldValue_ZeroLengthSpanIsNotNull()
+    {
+        var v = FieldValue.Span("abc", 1, 0);
+        Assert.AreEqual(FieldValueKind.Span, v.Kind);
+        var node = v.ToJsonNode();
+        Assert.AreEqual(string.Empty, node!.GetValue<string>());
+    }
+
+    [TestMethod]
+    public void IndexOf_IsOrdinal()
+    {
+        var c = new FieldCollector();
+        c.Set("Field", FieldValue.Node(JsonValue.Create(1)));
+
+        Assert.IsTrue(c.Contains("Field"));
+        Assert.IsFalse(c.Contains("field"));
+        Assert.AreEqual(-1, c.IndexOf("missing"));
     }
 
     [TestMethod]
@@ -35,19 +62,6 @@ public class FieldCollectorTests
     }
 
     [TestMethod]
-    public void Set_ReplacesInPlaceKeepingPosition()
-    {
-        var c = new FieldCollector();
-        c.Set("a", FieldValue.Span("first", 0, 5));
-        c.Set("b", FieldValue.Span("second", 0, 6));
-        c.Set("a", FieldValue.Span("third", 0, 5));
-
-        Assert.AreEqual(2, c.Count);
-        Assert.AreEqual("a", c.NameAt(0));
-        Assert.AreEqual("""{"a":"third","b":"second"}""", WriteToString(c));
-    }
-
-    [TestMethod]
     public void Set_GrowsPastInitialCapacity()
     {
         var c = new FieldCollector();
@@ -63,14 +77,32 @@ public class FieldCollectorTests
     }
 
     [TestMethod]
-    public void IndexOf_IsOrdinal()
+    public void Set_ReplacesInPlaceKeepingPosition()
     {
         var c = new FieldCollector();
-        c.Set("Field", FieldValue.Node(JsonValue.Create(1)));
+        c.Set("a", FieldValue.Span("first", 0, 5));
+        c.Set("b", FieldValue.Span("second", 0, 6));
+        c.Set("a", FieldValue.Span("third", 0, 5));
 
-        Assert.IsTrue(c.Contains("Field"));
-        Assert.IsFalse(c.Contains("field"));
-        Assert.AreEqual(-1, c.IndexOf("missing"));
+        Assert.AreEqual(2, c.Count);
+        Assert.AreEqual("a", c.NameAt(0));
+        Assert.AreEqual("""{"a":"third","b":"second"}""", WriteToString(c));
+    }
+
+    [TestMethod]
+    public void ToJsonObject_DetachesAlreadyParentedNodes()
+    {
+        var parent = new JsonObject();
+        var child = JsonValue.Create("owned");
+        parent["p"] = child;
+
+        var c = new FieldCollector();
+        c.Set("a", FieldValue.Node(child));
+
+        var obj = c.ToJsonObject();
+        Assert.AreEqual("owned", obj["a"]!.GetValue<string>());
+        /* original parent keeps its node; the collector cloned on materialize */
+        Assert.AreEqual("owned", parent["p"]!.GetValue<string>());
     }
 
     [TestMethod]
@@ -93,46 +125,14 @@ public class FieldCollectorTests
         Assert.IsNull(obj["z"]);
     }
 
-    [TestMethod]
-    public void ToJsonObject_DetachesAlreadyParentedNodes()
+    private static string WriteToString(FieldCollector c)
     {
-        var parent = new JsonObject();
-        var child = JsonValue.Create("owned");
-        parent["p"] = child;
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            c.WriteTo(writer);
+        }
 
-        var c = new FieldCollector();
-        c.Set("a", FieldValue.Node(child));
-
-        var obj = c.ToJsonObject();
-        Assert.AreEqual("owned", obj["a"]!.GetValue<string>());
-        /* original parent keeps its node; the collector cloned on materialize */
-        Assert.AreEqual("owned", parent["p"]!.GetValue<string>());
-    }
-
-    [TestMethod]
-    public void FieldValue_DefaultIsNullKind()
-    {
-        FieldValue v = default;
-        Assert.AreEqual(FieldValueKind.Null, v.Kind);
-        Assert.IsNull(v.ToJsonNode());
-        Assert.AreEqual(FieldValueKind.Null, FieldValue.Node(null).Kind);
-    }
-
-    [TestMethod]
-    public void FieldValue_ZeroLengthSpanIsNotNull()
-    {
-        var v = FieldValue.Span("abc", 1, 0);
-        Assert.AreEqual(FieldValueKind.Span, v.Kind);
-        var node = v.ToJsonNode();
-        Assert.AreEqual(string.Empty, node!.GetValue<string>());
-    }
-
-    [TestMethod]
-    public void FieldValue_FullStringSpanMaterializesOriginalInstance()
-    {
-        const string source = "the whole message";
-        var v = FieldValue.Span(source, 0, source.Length);
-        var node = v.ToJsonNode();
-        Assert.IsTrue(ReferenceEquals(source, node!.GetValue<string>()));
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 }

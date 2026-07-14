@@ -1,5 +1,4 @@
 using System.Text;
-using System.Threading;
 using System.Text.Json.Nodes;
 
 namespace DeltaZulu.Normalize;
@@ -22,241 +21,40 @@ namespace DeltaZulu.Normalize;
 internal static class Normalizer
 {
     private const string MetaKey = "metadata";
-    private const string OriginalMsgKey = "originalmsg";
-    private const string UnparsedDataKey = "unparsed-data";
     private const string MetaRuleKey = "rule";
-    private const string RuleMockupKey = "mockup";
-    private const string RuleLocationKey = "location";
 
     /// <summary>No terminal node found (sentinel for the endNode index).</summary>
     private const int NoNode = -1;
 
-    /// <summary>
-    /// Skip a parser whose field already exists in the result. Only used by
-    /// "repeat" with option.failOnDuplicate (port of checkDuplicate; the C
-    /// call sites always pass a null value, so only the name check remains).
-    /// </summary>
-    private static bool CheckDuplicate(FieldCollector? fields, string? check)
-        => fields != null && check != null && fields.Contains(check);
+    private const string OriginalMsgKey = "originalmsg";
+    private const string RuleLocationKey = "location";
+    private const string RuleMockupKey = "mockup";
+    private const string UnparsedDataKey = "unparsed-data";
 
-    /// <summary>
-    /// Merge a successfully extracted value into the result collector,
-    /// implementing the special field names (port of fixJSON):
-    /// unnamed fields are dropped; "." splices an object's members into the
-    /// parent; a single-member "..&quot; sub-object is unwrapped so the value
-    /// appears directly under this parser's field name. On a duplicate under
-    /// failOnDuplicate the splice aborts mid-way, leaving the keys already
-    /// spliced committed — exactly like the C code.
-    /// </summary>
-    private static int CommitField(ref FieldValue value, FieldCollector? fields, in CompiledEdge prs, bool failOnDuplicate)
+    /// <summary>Normalize a message against a snapshot (port of ln_normalize).</summary>
+    public static int Normalize(LogNormContext ctx, CompiledPdag snap, string str, out FieldCollector fields)
     {
+        fields = new FieldCollector();
+        return NormalizeCore(ctx, snap, str, fields);
+    }
+
+    /// <summary>Normalize and materialize the result as a <see cref="JsonObject"/>.</summary>
+    public static int Normalize(LogNormContext ctx, CompiledPdag snap, string str, out JsonObject result)
+    {
+        /* fields is discarded the instant it is materialized below, so a
+         * rented array avoids paying a fixed allocation on every call for
+         * callers who never touch the flat NormalizeResult API */
+        var fields = FieldCollector.RentScratch();
         try
         {
-            if (fields == null)
-            {
-                return 0;
-            }
-
-            if (prs.Name == null)
-            {
-                /* value matched but not to be persisted */
-                return 0;
-            }
-
-            if (prs.Name == ".")
-            {
-                if (value.Kind == FieldValueKind.Object)
-                {
-                    var sub = value.Collector;
-                    for (var i = 0; i < sub.Count; ++i)
-                    {
-                        if (failOnDuplicate && fields.Contains(sub.NameAt(i)))
-                        {
-                            return ErrorCodes.WrongParser;
-                        }
-
-                        fields.Set(sub.NameAt(i), sub.ValueAt(i));
-                    }
-                }
-                else if (value.Kind == FieldValueKind.Node && value.NodeRef is JsonObject obj)
-                {
-                    foreach ((var key, var val) in obj.ToList())
-                    {
-                        if (failOnDuplicate && fields.Contains(key))
-                        {
-                            return ErrorCodes.WrongParser;
-                        }
-
-                        obj.Remove(key);
-                        fields.Set(key, FieldValue.Node(val));
-                    }
-                }
-                else
-                {
-                    fields.Set(prs.Name, value);
-                }
-                return 0;
-            }
-
-            /* check for a single "..": use its value under our own name */
-            if (value.Kind == FieldValueKind.Object
-                && value.Collector is { Count: 1 } subFields && subFields.NameAt(0) == "..")
-            {
-                if (failOnDuplicate && fields.Contains(prs.Name))
-                {
-                    return ErrorCodes.WrongParser;
-                }
-
-                fields.Set(prs.Name, subFields.ValueAt(0));
-            }
-            else if (value.Kind == FieldValueKind.Node
-                && value.NodeRef is JsonObject { Count: 1 } subObj && subObj.ContainsKey(".."))
-            {
-                if (failOnDuplicate && fields.Contains(prs.Name))
-                {
-                    return ErrorCodes.WrongParser;
-                }
-
-                var dotdot = subObj[".."];
-                subObj.Remove("..");
-                fields.Set(prs.Name, FieldValue.Node(dotdot));
-            }
-            else
-            {
-                if (failOnDuplicate && fields.Contains(prs.Name))
-                {
-                    return ErrorCodes.WrongParser;
-                }
-
-                fields.Set(prs.Name, value);
-            }
-            return 0;
+            var r = NormalizeCore(ctx, snap, str, fields);
+            result = fields.ToJsonObject();
+            return r;
         }
         finally
         {
-            value = default;
+            fields.ReturnScratch();
         }
-    }
-
-    /// <summary>Detach a node from a previous parent so it can be re-added elsewhere.</summary>
-    internal static JsonNode? Detach(JsonNode? node)
-    {
-        if (node?.Parent != null)
-        {
-            return node.DeepClone();
-        }
-
-        return node;
-    }
-
-    /// <summary>
-    /// <para>
-    /// Try a single edge at the given offset (port of tryParser). Custom
-    /// types recursively parse against their own component, accepting a
-    /// partial match of the remaining input.
-    /// </para>
-    /// <para>
-    /// Match and extraction are split in two phases: this call normally only
-    /// measures (wantValue: false) and the value is produced on the success
-    /// unwind (see <see cref="ExtractMode"/>), so backtracked paths never
-    /// allocate values. Edges compiled as Eager extract here, signalled via
-    /// <paramref name="valueMaterialized"/>; a custom type under
-    /// failOnDuplicate is also eager because its match consults
-    /// <paramref name="curFields"/>, which deeper commits mutate before the
-    /// unwind reaches this edge.
-    /// </para>
-    /// </summary>
-    private static int TryParser(Npb npb, ref int offs, ref int parsed, ref FieldValue value,
-        out bool valueMaterialized, in CompiledEdge prs, bool failOnDuplicate, FieldCollector? curFields,
-        string? parserName)
-    {
-        int r;
-        var parsedToSave = npb.ParsedTo;
-        valueMaterialized = false;
-
-        if (prs.PrsId == ParserTable.CustomTypeId)
-        {
-            if (prs.CustomTypeIdx < 0 || prs.CustomTypeIdx >= npb.Snap.TypeRoots.Length)
-            {
-                npb.ParsedTo = parsedToSave;
-                return ErrorCodes.WrongParser;
-            }
-            var endNode = NoNode;
-            if (failOnDuplicate)
-            {
-                valueMaterialized = true;
-                var sub = value.Kind == FieldValueKind.Object ? value.Collector : new FieldCollector();
-                value = FieldValue.Object(sub);
-                r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
-                    sub, ref endNode, failOnDuplicate: true, curFields, parserName);
-                if (r != 0)
-                {
-                    value = default;
-                }
-            }
-            else
-            {
-                /* measure only: values along the nested path are discarded
-                 * (fields: null) and produced again on the success unwind */
-                r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
-                    fields: null, ref endNode, failOnDuplicate: false, curFields, parserName);
-            }
-            parsed = npb.ParsedTo - offs;
-        }
-        else if (prs.Extract == ExtractMode.Eager)
-        {
-            valueMaterialized = true;
-            JsonNode? node = null;
-            r = ParserTable.Dispatch(prs.PrsId, npb, ref offs, prs.Data, parserName,
-                out parsed, wantValue: prs.Name != null, ref node);
-            value = FieldValue.Node(node);
-        }
-        else
-        {
-            JsonNode? node = null;
-            r = ParserTable.Dispatch(prs.PrsId, npb, ref offs, prs.Data, parserName,
-                out parsed, wantValue: false, ref node);
-        }
-
-        npb.ParsedTo = parsedToSave;
-        return r;
-    }
-
-    /// <summary>
-    /// Produce the value of an edge that matched during the measure phase, by
-    /// re-running its parser at the recorded offset. Parsers are deterministic
-    /// functions of (input, offset, config), so this reproduces the match
-    /// exactly; it runs once, on the winning path only.
-    /// </summary>
-    private static void MaterializeValue(Npb npb, in CompiledEdge prs, int offs, ref FieldValue value)
-    {
-        var parsedToSave = npb.ParsedTo;
-        if (prs.PrsId == ParserTable.CustomTypeId)
-        {
-            var sub = new FieldCollector();
-            var endNode = NoNode;
-            var r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
-                sub, ref endNode, failOnDuplicate: false, cur: null, parserName: prs.Name);
-            value = r == 0 ? FieldValue.Object(sub) : default;
-        }
-        else
-        {
-            var i = offs;
-            JsonNode? node = null;
-            ParserTable.Dispatch(prs.PrsId, npb, ref i, prs.Data, prs.Name,
-                out _, wantValue: true, ref node);
-            value = FieldValue.Node(node);
-        }
-        npb.ParsedTo = parsedToSave;
-    }
-
-    /// <summary>Record the segment for the matching-rule mock-up (deepest-first, reversed at emit).</summary>
-    private static void AddRuleToMockup(Npb npb, in CompiledEdge prs)
-    {
-        var segment = prs.PrsId == ParserTable.LiteralId
-            ? Parsers.LiteralParser.DataForDisplay(prs.Data!)
-            : $"%{prs.Name ?? "-"}:{ParserTable.IdToName(prs.PrsId)}%";
-        npb.RuleSegments!.Add(segment);
     }
 
     /// <summary>
@@ -386,6 +184,17 @@ internal static class Normalizer
         return r;
     }
 
+    /// <summary>Detach a node from a previous parent so it can be re-added elsewhere.</summary>
+    internal static JsonNode? Detach(JsonNode? node)
+    {
+        if (node?.Parent != null)
+        {
+            return node.DeepClone();
+        }
+
+        return node;
+    }
+
     private static void AddRuleMetadata(Npb npb, FieldCollector fields, TerminalInfo endNode)
     {
         var ctx = npb.Ctx;
@@ -418,6 +227,15 @@ internal static class Normalizer
         }
     }
 
+    /// <summary>Record the segment for the matching-rule mock-up (deepest-first, reversed at emit).</summary>
+    private static void AddRuleToMockup(Npb npb, in CompiledEdge prs)
+    {
+        var segment = prs.PrsId == ParserTable.LiteralId
+            ? Parsers.LiteralParser.DataForDisplay(prs.Data!)
+            : $"%{prs.Name ?? "-"}:{ParserTable.IdToName(prs.PrsId)}%";
+        npb.RuleSegments!.Add(segment);
+    }
+
     private static void AddUnparsedField(string str, int offs, FieldCollector fields)
     {
         /* full-range and tail slices; a whole-string span materializes back
@@ -427,30 +245,139 @@ internal static class Normalizer
         fields.Set(UnparsedDataKey, FieldValue.Span(str, start, str.Length - start));
     }
 
-    /// <summary>Normalize a message against a snapshot (port of ln_normalize).</summary>
-    public static int Normalize(LogNormContext ctx, CompiledPdag snap, string str, out FieldCollector fields)
-    {
-        fields = new FieldCollector();
-        return NormalizeCore(ctx, snap, str, fields);
-    }
+    /// <summary>
+    /// Skip a parser whose field already exists in the result. Only used by
+    /// "repeat" with option.failOnDuplicate (port of checkDuplicate; the C
+    /// call sites always pass a null value, so only the name check remains).
+    /// </summary>
+    private static bool CheckDuplicate(FieldCollector? fields, string? check)
+        => fields != null && check != null && fields.Contains(check);
 
-    /// <summary>Normalize and materialize the result as a <see cref="JsonObject"/>.</summary>
-    public static int Normalize(LogNormContext ctx, CompiledPdag snap, string str, out JsonObject result)
+    /// <summary>
+    /// Merge a successfully extracted value into the result collector,
+    /// implementing the special field names (port of fixJSON):
+    /// unnamed fields are dropped; "." splices an object's members into the
+    /// parent; a single-member "..&quot; sub-object is unwrapped so the value
+    /// appears directly under this parser's field name. On a duplicate under
+    /// failOnDuplicate the splice aborts mid-way, leaving the keys already
+    /// spliced committed — exactly like the C code.
+    /// </summary>
+    private static int CommitField(ref FieldValue value, FieldCollector? fields, in CompiledEdge prs, bool failOnDuplicate)
     {
-        /* fields is discarded the instant it is materialized below, so a
-         * rented array avoids paying a fixed allocation on every call for
-         * callers who never touch the flat NormalizeResult API */
-        var fields = FieldCollector.RentScratch();
         try
         {
-            var r = NormalizeCore(ctx, snap, str, fields);
-            result = fields.ToJsonObject();
-            return r;
+            if (fields == null)
+            {
+                return 0;
+            }
+
+            if (prs.Name == null)
+            {
+                /* value matched but not to be persisted */
+                return 0;
+            }
+
+            if (prs.Name == ".")
+            {
+                if (value.Kind == FieldValueKind.Object)
+                {
+                    var sub = value.Collector;
+                    for (var i = 0; i < sub.Count; ++i)
+                    {
+                        if (failOnDuplicate && fields.Contains(sub.NameAt(i)))
+                        {
+                            return ErrorCodes.WrongParser;
+                        }
+
+                        fields.Set(sub.NameAt(i), sub.ValueAt(i));
+                    }
+                }
+                else if (value.Kind == FieldValueKind.Node && value.NodeRef is JsonObject obj)
+                {
+                    foreach ((var key, var val) in obj.ToList())
+                    {
+                        if (failOnDuplicate && fields.Contains(key))
+                        {
+                            return ErrorCodes.WrongParser;
+                        }
+
+                        obj.Remove(key);
+                        fields.Set(key, FieldValue.Node(val));
+                    }
+                }
+                else
+                {
+                    fields.Set(prs.Name, value);
+                }
+                return 0;
+            }
+
+            /* check for a single "..": use its value under our own name */
+            if (value.Kind == FieldValueKind.Object
+                && value.Collector is { Count: 1 } subFields && subFields.NameAt(0) == "..")
+            {
+                if (failOnDuplicate && fields.Contains(prs.Name))
+                {
+                    return ErrorCodes.WrongParser;
+                }
+
+                fields.Set(prs.Name, subFields.ValueAt(0));
+            }
+            else if (value.Kind == FieldValueKind.Node
+                && value.NodeRef is JsonObject { Count: 1 } subObj && subObj.ContainsKey(".."))
+            {
+                if (failOnDuplicate && fields.Contains(prs.Name))
+                {
+                    return ErrorCodes.WrongParser;
+                }
+
+                var dotdot = subObj[".."];
+                subObj.Remove("..");
+                fields.Set(prs.Name, FieldValue.Node(dotdot));
+            }
+            else
+            {
+                if (failOnDuplicate && fields.Contains(prs.Name))
+                {
+                    return ErrorCodes.WrongParser;
+                }
+
+                fields.Set(prs.Name, value);
+            }
+            return 0;
         }
         finally
         {
-            fields.ReturnScratch();
+            value = default;
         }
+    }
+
+    /// <summary>
+    /// Produce the value of an edge that matched during the measure phase, by
+    /// re-running its parser at the recorded offset. Parsers are deterministic
+    /// functions of (input, offset, config), so this reproduces the match
+    /// exactly; it runs once, on the winning path only.
+    /// </summary>
+    private static void MaterializeValue(Npb npb, in CompiledEdge prs, int offs, ref FieldValue value)
+    {
+        var parsedToSave = npb.ParsedTo;
+        if (prs.PrsId == ParserTable.CustomTypeId)
+        {
+            var sub = new FieldCollector();
+            var endNode = NoNode;
+            var r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
+                sub, ref endNode, failOnDuplicate: false, cur: null, parserName: prs.Name);
+            value = r == 0 ? FieldValue.Object(sub) : default;
+        }
+        else
+        {
+            var i = offs;
+            JsonNode? node = null;
+            ParserTable.Dispatch(prs.PrsId, npb, ref i, prs.Data, prs.Name,
+                out _, wantValue: true, ref node);
+            value = FieldValue.Node(node);
+        }
+        npb.ParsedTo = parsedToSave;
     }
 
     private static int NormalizeCore(LogNormContext ctx, CompiledPdag snap, string str, FieldCollector fields)
@@ -487,6 +414,79 @@ internal static class Normalizer
         {
             AddUnparsedField(str, npb.LongestParsedTo, fields);
         }
+        return r;
+    }
+
+    /// <summary>
+    /// <para>
+    /// Try a single edge at the given offset (port of tryParser). Custom
+    /// types recursively parse against their own component, accepting a
+    /// partial match of the remaining input.
+    /// </para>
+    /// <para>
+    /// Match and extraction are split in two phases: this call normally only
+    /// measures (wantValue: false) and the value is produced on the success
+    /// unwind (see <see cref="ExtractMode"/>), so backtracked paths never
+    /// allocate values. Edges compiled as Eager extract here, signalled via
+    /// <paramref name="valueMaterialized"/>; a custom type under
+    /// failOnDuplicate is also eager because its match consults
+    /// <paramref name="curFields"/>, which deeper commits mutate before the
+    /// unwind reaches this edge.
+    /// </para>
+    /// </summary>
+    private static int TryParser(Npb npb, ref int offs, ref int parsed, ref FieldValue value,
+        out bool valueMaterialized, in CompiledEdge prs, bool failOnDuplicate, FieldCollector? curFields,
+        string? parserName)
+    {
+        int r;
+        var parsedToSave = npb.ParsedTo;
+        valueMaterialized = false;
+
+        if (prs.PrsId == ParserTable.CustomTypeId)
+        {
+            if (prs.CustomTypeIdx < 0 || prs.CustomTypeIdx >= npb.Snap.TypeRoots.Length)
+            {
+                npb.ParsedTo = parsedToSave;
+                return ErrorCodes.WrongParser;
+            }
+            var endNode = NoNode;
+            if (failOnDuplicate)
+            {
+                valueMaterialized = true;
+                var sub = value.Kind == FieldValueKind.Object ? value.Collector : new FieldCollector();
+                value = FieldValue.Object(sub);
+                r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
+                    sub, ref endNode, failOnDuplicate: true, curFields, parserName);
+                if (r != 0)
+                {
+                    value = default;
+                }
+            }
+            else
+            {
+                /* measure only: values along the nested path are discarded
+                 * (fields: null) and produced again on the success unwind */
+                r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
+                    fields: null, ref endNode, failOnDuplicate: false, curFields, parserName);
+            }
+            parsed = npb.ParsedTo - offs;
+        }
+        else if (prs.Extract == ExtractMode.Eager)
+        {
+            valueMaterialized = true;
+            JsonNode? node = null;
+            r = ParserTable.Dispatch(prs.PrsId, npb, ref offs, prs.Data, parserName,
+                out parsed, wantValue: prs.Name != null, ref node);
+            value = FieldValue.Node(node);
+        }
+        else
+        {
+            JsonNode? node = null;
+            r = ParserTable.Dispatch(prs.PrsId, npb, ref offs, prs.Data, parserName,
+                out parsed, wantValue: false, ref node);
+        }
+
+        npb.ParsedTo = parsedToSave;
         return r;
     }
 }

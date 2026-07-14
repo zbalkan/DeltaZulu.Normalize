@@ -31,9 +31,9 @@ internal readonly struct FieldValue
     public readonly FieldValueKind Kind;
 
     /* string (span source) | JsonNode | FieldCollector, per Kind */
-    private readonly object? _ref;
-    private readonly int _offs;
     private readonly int _len;
+    private readonly int _offs;
+    private readonly object? _ref;
 
     private FieldValue(FieldValueKind kind, object? reference, int offs, int len)
     {
@@ -43,14 +43,8 @@ internal readonly struct FieldValue
         _len = len;
     }
 
-    public static FieldValue Span(string source, int offs, int len)
-        => new(FieldValueKind.Span, source, offs, len);
-
-    public static FieldValue Node(JsonNode? node)
-        => node == null ? default : new(FieldValueKind.Node, node, 0, 0);
-
-    public static FieldValue Object(FieldCollector collector)
-        => new(FieldValueKind.Object, collector, 0, 0);
+    /// <summary>The nested collector; only valid when <see cref="Kind"/> is Object.</summary>
+    public FieldCollector Collector => (FieldCollector)_ref!;
 
     /// <summary>The input slice; only valid when <see cref="Kind"/> is Span.</summary>
     public ReadOnlyMemory<char> Memory => ((string)_ref!).AsMemory(_offs, _len);
@@ -58,8 +52,14 @@ internal readonly struct FieldValue
     /// <summary>The node; only valid when <see cref="Kind"/> is Node.</summary>
     public JsonNode NodeRef => (JsonNode)_ref!;
 
-    /// <summary>The nested collector; only valid when <see cref="Kind"/> is Object.</summary>
-    public FieldCollector Collector => (FieldCollector)_ref!;
+    public static FieldValue Node(JsonNode? node)
+        => node == null ? default : new(FieldValueKind.Node, node, 0, 0);
+
+    public static FieldValue Object(FieldCollector collector)
+        => new(FieldValueKind.Object, collector, 0, 0);
+
+    public static FieldValue Span(string source, int offs, int len)
+                            => new(FieldValueKind.Span, source, offs, len);
 
     /// <summary>
     /// Materialize as a <see cref="JsonNode"/>. Span values allocate their
@@ -84,12 +84,15 @@ internal readonly struct FieldValue
             case FieldValueKind.Span:
                 writer.WriteStringValue(((string)_ref!).AsSpan(_offs, _len));
                 break;
+
             case FieldValueKind.Node:
                 NodeRef.WriteTo(writer);
                 break;
+
             case FieldValueKind.Object:
                 Collector.WriteTo(writer);
                 break;
+
             default:
                 writer.WriteNullValue();
                 break;

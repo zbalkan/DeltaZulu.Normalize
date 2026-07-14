@@ -7,6 +7,19 @@ namespace DeltaZulu.Normalize;
 /// </summary>
 internal sealed class Npb
 {
+    /// <summary>The furthest position any attempted path ever reached (for "unparsed-data").</summary>
+    public int LongestParsedTo;
+
+    /// <summary>Up to which position the current (successful) parse path consumed input.</summary>
+    public int ParsedTo;
+
+    /// <summary>
+    /// Mock-up of the matching rule (only populated with <see cref="LogNormOptions.AddRule"/>).
+    /// Segments are appended while unwinding the recursion, i.e. deepest-first;
+    /// they are reversed when the rule string is emitted.
+    /// </summary>
+    public List<string>? RuleSegments;
+
     public required LogNormContext Ctx { get; init; }
 
     /// <summary>The compiled rulebase snapshot this message is parsed against.
@@ -19,19 +32,6 @@ internal sealed class Npb
 
     /// <summary>Length of <see cref="Str"/> (kept explicit to mirror the C code).</summary>
     public int StrLen => Str.Length;
-
-    /// <summary>Up to which position the current (successful) parse path consumed input.</summary>
-    public int ParsedTo;
-
-    /// <summary>The furthest position any attempted path ever reached (for "unparsed-data").</summary>
-    public int LongestParsedTo;
-
-    /// <summary>
-    /// Mock-up of the matching rule (only populated with <see cref="LogNormOptions.AddRule"/>).
-    /// Segments are appended while unwinding the recursion, i.e. deepest-first;
-    /// they are reversed when the rule string is emitted.
-    /// </summary>
-    public List<string>? RuleSegments;
 
     /// <summary>Character at <paramref name="i"/>, or NUL past the end.
     /// Mirrors the C library reading its NUL-terminated buffer at str[strLen].</summary>

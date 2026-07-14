@@ -5,44 +5,162 @@ namespace DeltaZulu.Normalize.Parsers;
 /// <summary>Network address motifs: ipv4, ipv6, mac48 and cisco-interface-spec.</summary>
 internal static class NetworkParsers
 {
-    /// <summary>Check one dotted-quad byte: 1-3 digits, value at most 255.</summary>
-    private static bool CheckIPv4AddrByte(Npb npb, ref int offs)
+    /// <summary>
+    /// A Cisco ASA interface spec: [interface:]ip/port [SP (ip2/port2)] [[SP](username)].
+    /// </summary>
+    public static int ParseCiscoInterfaceSpec(Npb npb, ref int offs, object? pdata, string? parserName,
+        out int parsed, bool wantValue, ref JsonNode? value)
     {
+        parsed = 0;
+        var s = npb.Str;
         var i = offs;
-        if (i == npb.StrLen || !TextRules.IsDigit(npb.Str[i]))
+
+        if (npb.At(i) == ':' || TextRules.IsSpace(npb.At(i)) || i >= npb.StrLen)
         {
-            return false;
+            return ErrorCodes.WrongParser;
         }
 
-        var val = npb.Str[i++] - '0';
-        if (i < npb.StrLen && TextRules.IsDigit(npb.Str[i]))
+        /* if the spec starts with an IP there is no interface name */
+        var haveInterface = false;
+        int idxInterface = 0, lenInterface = 0;
+        var haveIP = false;
+        var idxIP = i;
+        int lenIP;
+        if (MatchIPv4(npb, i, out lenIP))
         {
-            val = (val * 10) + npb.Str[i++] - '0';
-            if (i < npb.StrLen && TextRules.IsDigit(npb.Str[i]))
+            haveIP = true;
+            i += lenIP - 1; /* position on delimiter */
+        }
+        else
+        {
+            idxInterface = i;
+            while (i < npb.StrLen)
             {
-                val = (val * 10) + npb.Str[i++] - '0';
+                if (TextRules.IsSpace(s[i]))
+                {
+                    return ErrorCodes.WrongParser;
+                }
+
+                if (s[i] == ':')
+                {
+                    break;
+                }
+
+                ++i;
+            }
+            lenInterface = i - idxInterface;
+            haveInterface = true;
+        }
+        if (i == npb.StrLen)
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        ++i; /* skip colon */
+
+        if (!haveIP)
+        {
+            idxIP = i;
+            if (!MatchIPv4(npb, i, out lenIP))
+            {
+                return ErrorCodes.WrongParser;
+            }
+
+            i += lenIP;
+        }
+        if (i == npb.StrLen || s[i] != '/')
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        ++i; /* skip slash */
+        var idxPort = i;
+        if (!MatchNumber(npb, i, out var lenPort))
+        {
+            return ErrorCodes.WrongParser;
+        }
+
+        i += lenPort;
+
+        /* optional second ip/port; need at least 5 chars: " (::1)" */
+        var haveIP2 = false;
+        int idxIP2 = 0, lenIP2 = 0, idxPort2 = 0, lenPort2 = 0;
+        if (i + 5 < npb.StrLen && s[i] == ' ' && s[i + 1] == '(')
+        {
+            var iTmp = i + 2; /* skip over " (" */
+            idxIP2 = iTmp;
+            if (MatchIPv4(npb, iTmp, out lenIP2))
+            {
+                iTmp += lenIP2;
+                /* faithful port of the C library, which (buggily) skips one
+                 * char here without verifying it is '/' */
+                if (i < npb.StrLen || npb.At(iTmp) == '/')
+                {
+                    ++iTmp; /* skip slash */
+                    idxPort2 = iTmp;
+                    if (MatchNumber(npb, iTmp, out lenPort2))
+                    {
+                        iTmp += lenPort2;
+                        if (iTmp < npb.StrLen && s[iTmp] == ')')
+                        {
+                            i = iTmp + 1; /* match, use new index */
+                            haveIP2 = true;
+                        }
+                    }
+                }
             }
         }
-        if (val > 255)
+
+        /* optional username; need at least 3 chars: "(n)" */
+        var haveUser = false;
+        int idxUser = 0, lenUser = 0;
+        if ((i + 2 < npb.StrLen && s[i] == '(' && !TextRules.IsSpace(s[i + 1]))
+            || (i + 3 < npb.StrLen && s[i] == ' ' && s[i + 1] == '(' && !TextRules.IsSpace(s[i + 2])))
         {
-            return false;
+            idxUser = i + (s[i] == ' ' ? 2 : 1); /* skip [SP]'(' */
+            var iTmp = idxUser;
+            while (iTmp < npb.StrLen && !TextRules.IsSpace(s[iTmp]) && s[iTmp] != ')')
+            {
+                ++iTmp; /* just scan */
+            }
+
+            if (iTmp < npb.StrLen && s[iTmp] == ')')
+            {
+                i = iTmp + 1; /* we have a match, use new index */
+                haveUser = true;
+                lenUser = iTmp - idxUser;
+            }
         }
 
-        offs = i;
-        return true;
-    }
+        if (wantValue)
+        {
+            var obj = new JsonObject();
+            if (haveInterface)
+            {
+                obj["interface"] = s.Substring(idxInterface, lenInterface);
+            }
 
-    /// <summary>Match an IPv4 address at i without extracting; used by ipv6 and cisco.</summary>
-    internal static bool MatchIPv4(Npb npb, int i, out int len)
-    {
-        var offs = i;
-        JsonNode? dummy = null;
-        var r = ParseIPv4(npb, ref offs, null, null, out len, wantValue: false, ref dummy);
-        return r == 0;
+            obj["ip"] = s.Substring(idxIP, lenIP);
+            obj["port"] = s.Substring(idxPort, lenPort);
+            if (haveIP2)
+            {
+                obj["ip2"] = s.Substring(idxIP2, lenIP2);
+                obj["port2"] = s.Substring(idxPort2, lenPort2);
+            }
+            if (haveUser)
+            {
+                obj["user"] = s.Substring(idxUser, lenUser);
+            }
+
+            value = obj;
+        }
+
+        parsed = i - offs;
+        return 0;
     }
 
     public static int ParseIPv4(Npb npb, ref int offs, object? pdata, string? parserName,
-        out int parsed, bool wantValue, ref JsonNode? value)
+            out int parsed, bool wantValue, ref JsonNode? value)
     {
         parsed = 0;
         var i = offs;
@@ -93,20 +211,6 @@ internal static class NetworkParsers
         }
 
         return 0;
-    }
-
-    /// <summary>Skip past one IPv6 address block (up to 4 hex digits).</summary>
-    private static bool SkipIPv6AddrBlock(Npb npb, ref int offs)
-    {
-        if (offs == npb.StrLen)
-        {
-            return false;
-        }
-
-        int j;
-        for (j = 0; j < 4 && offs + j < npb.StrLen && TextRules.IsHexDigit(npb.Str[offs + j]); ++j) { }
-        offs += j;
-        return true;
     }
 
     /// <summary>
@@ -275,158 +379,40 @@ internal static class NetworkParsers
         return 0;
     }
 
-    /// <summary>
-    /// A Cisco ASA interface spec: [interface:]ip/port [SP (ip2/port2)] [[SP](username)].
-    /// </summary>
-    public static int ParseCiscoInterfaceSpec(Npb npb, ref int offs, object? pdata, string? parserName,
-        out int parsed, bool wantValue, ref JsonNode? value)
+    /// <summary>Match an IPv4 address at i without extracting; used by ipv6 and cisco.</summary>
+    internal static bool MatchIPv4(Npb npb, int i, out int len)
     {
-        parsed = 0;
-        var s = npb.Str;
+        var offs = i;
+        JsonNode? dummy = null;
+        var r = ParseIPv4(npb, ref offs, null, null, out len, wantValue: false, ref dummy);
+        return r == 0;
+    }
+
+    /// <summary>Check one dotted-quad byte: 1-3 digits, value at most 255.</summary>
+    private static bool CheckIPv4AddrByte(Npb npb, ref int offs)
+    {
         var i = offs;
-
-        if (npb.At(i) == ':' || TextRules.IsSpace(npb.At(i)) || i >= npb.StrLen)
+        if (i == npb.StrLen || !TextRules.IsDigit(npb.Str[i]))
         {
-            return ErrorCodes.WrongParser;
+            return false;
         }
 
-        /* if the spec starts with an IP there is no interface name */
-        var haveInterface = false;
-        int idxInterface = 0, lenInterface = 0;
-        var haveIP = false;
-        var idxIP = i;
-        int lenIP;
-        if (MatchIPv4(npb, i, out lenIP))
+        var val = npb.Str[i++] - '0';
+        if (i < npb.StrLen && TextRules.IsDigit(npb.Str[i]))
         {
-            haveIP = true;
-            i += lenIP - 1; /* position on delimiter */
-        }
-        else
-        {
-            idxInterface = i;
-            while (i < npb.StrLen)
+            val = (val * 10) + npb.Str[i++] - '0';
+            if (i < npb.StrLen && TextRules.IsDigit(npb.Str[i]))
             {
-                if (TextRules.IsSpace(s[i]))
-                {
-                    return ErrorCodes.WrongParser;
-                }
-
-                if (s[i] == ':')
-                {
-                    break;
-                }
-
-                ++i;
-            }
-            lenInterface = i - idxInterface;
-            haveInterface = true;
-        }
-        if (i == npb.StrLen)
-        {
-            return ErrorCodes.WrongParser;
-        }
-
-        ++i; /* skip colon */
-
-        if (!haveIP)
-        {
-            idxIP = i;
-            if (!MatchIPv4(npb, i, out lenIP))
-            {
-                return ErrorCodes.WrongParser;
-            }
-
-            i += lenIP;
-        }
-        if (i == npb.StrLen || s[i] != '/')
-        {
-            return ErrorCodes.WrongParser;
-        }
-
-        ++i; /* skip slash */
-        var idxPort = i;
-        if (!MatchNumber(npb, i, out var lenPort))
-        {
-            return ErrorCodes.WrongParser;
-        }
-
-        i += lenPort;
-
-        /* optional second ip/port; need at least 5 chars: " (::1)" */
-        var haveIP2 = false;
-        int idxIP2 = 0, lenIP2 = 0, idxPort2 = 0, lenPort2 = 0;
-        if (i + 5 < npb.StrLen && s[i] == ' ' && s[i + 1] == '(')
-        {
-            var iTmp = i + 2; /* skip over " (" */
-            idxIP2 = iTmp;
-            if (MatchIPv4(npb, iTmp, out lenIP2))
-            {
-                iTmp += lenIP2;
-                /* faithful port of the C library, which (buggily) skips one
-                 * char here without verifying it is '/' */
-                if (i < npb.StrLen || npb.At(iTmp) == '/')
-                {
-                    ++iTmp; /* skip slash */
-                    idxPort2 = iTmp;
-                    if (MatchNumber(npb, iTmp, out lenPort2))
-                    {
-                        iTmp += lenPort2;
-                        if (iTmp < npb.StrLen && s[iTmp] == ')')
-                        {
-                            i = iTmp + 1; /* match, use new index */
-                            haveIP2 = true;
-                        }
-                    }
-                }
+                val = (val * 10) + npb.Str[i++] - '0';
             }
         }
-
-        /* optional username; need at least 3 chars: "(n)" */
-        var haveUser = false;
-        int idxUser = 0, lenUser = 0;
-        if ((i + 2 < npb.StrLen && s[i] == '(' && !TextRules.IsSpace(s[i + 1]))
-            || (i + 3 < npb.StrLen && s[i] == ' ' && s[i + 1] == '(' && !TextRules.IsSpace(s[i + 2])))
+        if (val > 255)
         {
-            idxUser = i + (s[i] == ' ' ? 2 : 1); /* skip [SP]'(' */
-            var iTmp = idxUser;
-            while (iTmp < npb.StrLen && !TextRules.IsSpace(s[iTmp]) && s[iTmp] != ')')
-            {
-                ++iTmp; /* just scan */
-            }
-
-            if (iTmp < npb.StrLen && s[iTmp] == ')')
-            {
-                i = iTmp + 1; /* we have a match, use new index */
-                haveUser = true;
-                lenUser = iTmp - idxUser;
-            }
+            return false;
         }
 
-        if (wantValue)
-        {
-            var obj = new JsonObject();
-            if (haveInterface)
-            {
-                obj["interface"] = s.Substring(idxInterface, lenInterface);
-            }
-
-            obj["ip"] = s.Substring(idxIP, lenIP);
-            obj["port"] = s.Substring(idxPort, lenPort);
-            if (haveIP2)
-            {
-                obj["ip2"] = s.Substring(idxIP2, lenIP2);
-                obj["port2"] = s.Substring(idxPort2, lenPort2);
-            }
-            if (haveUser)
-            {
-                obj["user"] = s.Substring(idxUser, lenUser);
-            }
-
-            value = obj;
-        }
-
-        parsed = i - offs;
-        return 0;
+        offs = i;
+        return true;
     }
 
     /// <summary>Match a plain digit run (number parser without config), used by cisco.</summary>
@@ -436,5 +422,19 @@ internal static class NetworkParsers
         JsonNode? dummy = null;
         var r = NumberParsers.ParseNumber(npb, ref offs, null, null, out len, wantValue: false, ref dummy);
         return r == 0;
+    }
+
+    /// <summary>Skip past one IPv6 address block (up to 4 hex digits).</summary>
+    private static bool SkipIPv6AddrBlock(Npb npb, ref int offs)
+    {
+        if (offs == npb.StrLen)
+        {
+            return false;
+        }
+
+        int j;
+        for (j = 0; j < 4 && offs + j < npb.StrLen && TextRules.IsHexDigit(npb.Str[offs + j]); ++j) { }
+        offs += j;
+        return true;
     }
 }

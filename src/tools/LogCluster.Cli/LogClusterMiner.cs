@@ -56,6 +56,7 @@ internal static partial class LiblognormMotifs
     private static readonly Regex Ipv4Regex = Ipv4Pattern();
     private static readonly Regex Mac48Regex = Mac48Pattern();
     private static readonly Regex WordRegex = WordPattern();
+
     public static int Priority(string parser) => parser switch {
         Ipv4 or Ipv6 or Mac48 => 0,
         DateIso => 1,
@@ -102,6 +103,7 @@ internal static partial class LiblognormMotifs
             yield return Word;
         }
     }
+
     [GeneratedRegex("^[+-]?(?:[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$")]
     private static partial Regex FloatPattern();
 
@@ -110,6 +112,7 @@ internal static partial class LiblognormMotifs
 
     [GeneratedRegex("^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$")]
     private static partial Regex Ipv4Pattern();
+
     [GeneratedRegex("^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$")]
     private static partial Regex Mac48Pattern();
 
@@ -263,6 +266,7 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
     public bool KeepEvidence => _gaps.Count > 0;
     public CandidateKey Key { get; } = key;
     public int Support { get; private set; }
+
     public void InitializeGaps(int maxSamples)
     {
         var gapCount = anchors.Length + 1;
@@ -301,6 +305,7 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
         _lastSequence = sequenceNumber;
         Support++;
     }
+
     public CandidateOutput ToOutput(int recordCount, TokenDictionary dictionary)
     {
         var renderedGaps = _gaps.Select(g => g.ToOutput()).ToArray();
@@ -410,6 +415,7 @@ internal sealed class TokenDictionary
         _tokens.Add(token);
         return id;
     }
+
     public string Join(IReadOnlyList<int> tokenIds) => tokenIds.Count switch {
         0 => string.Empty,
         1 => _tokens[tokenIds[0]],
@@ -496,6 +502,7 @@ internal readonly record struct CandidateKey : IEquatable<CandidateKey>
 
     public override string ToString() => _value ?? string.Empty;
 }
+
 internal static class CandidateScorer
 {
     public static CandidateScore Score(int support, int recordCount, int anchorCount, IReadOnlyList<GapOutput> gaps)

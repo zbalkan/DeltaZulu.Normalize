@@ -19,20 +19,22 @@ namespace DeltaZulu.Normalize;
 /// </summary>
 public sealed class LogNormContext
 {
+    internal string? ConfFile;
+
+    internal int ConfLineNumber;
+
+    internal int IncludeLevel;
+
+    internal string? RulePrefix;
+
+    private readonly Lock _pdagLock = new();
+
+    private CompiledPdag? _snapshot;
+
     public LogNormContext()
     {
         Root = new Pdag(this);
     }
-
-    /// <summary>Root of the main PDAG component.</summary>
-    public Pdag Root { get; }
-
-    internal List<TypePdag> TypePdags { get; } = new();
-
-    internal AnnotationSet Annotations { get; } = new();
-
-    /// <summary>Options controlling extra output fields.</summary>
-    public LogNormOptions Options { get; set; }
 
     /// <summary>Receives debug trace messages when set.</summary>
     public Action<string>? DebugCallback { get; set; }
@@ -43,49 +45,48 @@ public sealed class LogNormContext
     /// <summary>Total number of PDAG nodes created in this context.</summary>
     public int NodeCount { get; internal set; }
 
-    /* rulebase loading state (samp.c: ln_ctx fields) */
-    internal string? RulePrefix;
-    internal int IncludeLevel;
-    internal string? ConfFile;
-    internal int ConfLineNumber;
+    /// <summary>Options controlling extra output fields.</summary>
+    public LogNormOptions Options { get; set; }
 
-    private readonly Lock _pdagLock = new();
-    private CompiledPdag? _snapshot;
+    /// <summary>Root of the main PDAG component.</summary>
+    public Pdag Root { get; }
+
+    internal AnnotationSet Annotations { get; } = new();
+    internal List<TypePdag> TypePdags { get; } = new();
+    /* rulebase loading state (samp.c: ln_ctx fields) */
 
     /// <summary>
-    /// Return the current compiled snapshot, compiling one from the builder
-    /// graph if none is published. Readers use a lock-free Volatile.Read;
-    /// only compilation itself serializes on the lock.
+    /// Generate a GraphViz DOT description of the main PDAG component,
+    /// useful to inspect how the rulebase was compiled.
     /// </summary>
-    internal CompiledPdag EnsureCompiled()
-    {
-        return Volatile.Read(ref _snapshot) ?? CompileLocked();
+    public string GenerateDot() => PdagCompiler.GenerateDot(EnsureCompiled());
 
-        CompiledPdag CompileLocked()
-        {
-            lock (_pdagLock)
-            {
-                var snap = Volatile.Read(ref _snapshot);
-                if (snap == null)
-                {
-                    snap = PdagCompiler.Compile(this);
-                    Volatile.Write(ref _snapshot, snap);
-                }
-                return snap;
-            }
-        }
-    }
-
-    private int LoadUnderLock(Func<int> load)
+    /// <summary>
+    /// Total node-visit and backtrack counts accumulated by normalization.
+    /// Requires <see cref="LogNormOptions.CollectStats"/> (set before first
+    /// use); returns zeros otherwise. Counters restart when a rulebase load
+    /// replaces the compiled snapshot.
+    /// </summary>
+    public (long NodesVisited, long Backtracks) GetStats()
     {
-        lock (_pdagLock)
+        var snap = Volatile.Read(ref _snapshot);
+        if (snap?.StatsCalled == null || snap.StatsBacktracked == null)
         {
-            var r = load();
-            /* invalidate even on failure: rules may have been added before
-             * the error was hit, and they must become visible consistently */
-            Volatile.Write(ref _snapshot, null);
-            return r;
+            return (0, 0);
         }
+
+        long called = 0, backtracked = 0;
+        foreach (var v in snap.StatsCalled)
+        {
+            called += v;
+        }
+
+        foreach (var v in snap.StatsBacktracked)
+        {
+            backtracked += v;
+        }
+
+        return (called, backtracked);
     }
 
     /// <summary>
@@ -149,34 +150,6 @@ public sealed class LogNormContext
     }
 
     /// <summary>
-    /// Total node-visit and backtrack counts accumulated by normalization.
-    /// Requires <see cref="LogNormOptions.CollectStats"/> (set before first
-    /// use); returns zeros otherwise. Counters restart when a rulebase load
-    /// replaces the compiled snapshot.
-    /// </summary>
-    public (long NodesVisited, long Backtracks) GetStats()
-    {
-        var snap = Volatile.Read(ref _snapshot);
-        if (snap?.StatsCalled == null || snap.StatsBacktracked == null)
-        {
-            return (0, 0);
-        }
-
-        long called = 0, backtracked = 0;
-        foreach (var v in snap.StatsCalled)
-        {
-            called += v;
-        }
-
-        foreach (var v in snap.StatsBacktracked)
-        {
-            backtracked += v;
-        }
-
-        return (called, backtracked);
-    }
-
-    /// <summary>
     /// Convenience wrapper returning the result as a JSON string. Serializes
     /// straight from the flat result, so no intermediate JsonObject or
     /// per-field strings are allocated.
@@ -188,13 +161,31 @@ public sealed class LogNormContext
         return r;
     }
 
-    /// <summary>
-    /// Generate a GraphViz DOT description of the main PDAG component,
-    /// useful to inspect how the rulebase was compiled.
-    /// </summary>
-    public string GenerateDot() => PdagCompiler.GenerateDot(EnsureCompiled());
-
     internal void Debug(string msg) => DebugCallback?.Invoke(msg);
+
+    /// <summary>
+    /// Return the current compiled snapshot, compiling one from the builder
+    /// graph if none is published. Readers use a lock-free Volatile.Read;
+    /// only compilation itself serializes on the lock.
+    /// </summary>
+    internal CompiledPdag EnsureCompiled()
+    {
+        return Volatile.Read(ref _snapshot) ?? CompileLocked();
+
+        CompiledPdag CompileLocked()
+        {
+            lock (_pdagLock)
+            {
+                var snap = Volatile.Read(ref _snapshot);
+                if (snap == null)
+                {
+                    snap = PdagCompiler.Compile(this);
+                    Volatile.Write(ref _snapshot, snap);
+                }
+                return snap;
+            }
+        }
+    }
 
     internal void Error(string msg)
     {
@@ -203,6 +194,18 @@ public sealed class LogNormContext
         {
             var where = ConfFile == null ? string.Empty : $"{ConfFile}[{ConfLineNumber}]: ";
             cb(where + msg);
+        }
+    }
+
+    private int LoadUnderLock(Func<int> load)
+    {
+        lock (_pdagLock)
+        {
+            var r = load();
+            /* invalidate even on failure: rules may have been added before
+             * the error was hit, and they must become visible consistently */
+            Volatile.Write(ref _snapshot, null);
+            return r;
         }
     }
 }

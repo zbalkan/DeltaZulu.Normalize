@@ -13,11 +13,29 @@ namespace DeltaZulu.Normalize.Benchmarks;
 [SimpleJob(warmupCount: 5, iterationCount: 20)]
 public class LongFieldBenchmarks
 {
-    private LogNormContext _ctx = null!;
     private string _charToMsg = null!;
-    private string _wordMsg = null!;
+    private LogNormContext _ctx = null!;
     private string _literalMsg = null!;
     private string _quotedMsg = null!;
+    private string _wordMsg = null!;
+
+    [Benchmark]
+    public int LongCharTo() => _ctx.Normalize(_charToMsg, out JsonObject _);
+
+    [Benchmark]
+    public int LongCharToFlat() => _ctx.Normalize(_charToMsg, out NormalizeResult _);
+
+    [Benchmark]
+    public int LongLiteral() => _ctx.Normalize(_literalMsg, out JsonObject _);
+
+    [Benchmark]
+    public int LongQuoted() => _ctx.Normalize(_quotedMsg, out JsonObject _);
+
+    [Benchmark]
+    public int LongWord() => _ctx.Normalize(_wordMsg, out JsonObject _);
+
+    [Benchmark]
+    public int LongWordFlat() => _ctx.Normalize(_wordMsg, out NormalizeResult _);
 
     [GlobalSetup]
     public void Setup()
@@ -53,24 +71,6 @@ public class LongFieldBenchmarks
         }
     }
 
-    [Benchmark]
-    public int LongCharTo() => _ctx.Normalize(_charToMsg, out JsonObject _);
-
-    [Benchmark]
-    public int LongWord() => _ctx.Normalize(_wordMsg, out JsonObject _);
-
-    [Benchmark]
-    public int LongQuoted() => _ctx.Normalize(_quotedMsg, out JsonObject _);
-
-    [Benchmark]
-    public int LongLiteral() => _ctx.Normalize(_literalMsg, out JsonObject _);
-
     /* flat-result variants: the 300-char field values stay slices of the
      * input message, so no per-field string copy occurs */
-
-    [Benchmark]
-    public int LongCharToFlat() => _ctx.Normalize(_charToMsg, out NormalizeResult _);
-
-    [Benchmark]
-    public int LongWordFlat() => _ctx.Normalize(_wordMsg, out NormalizeResult _);
 }

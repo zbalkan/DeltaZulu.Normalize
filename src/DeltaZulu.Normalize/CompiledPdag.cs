@@ -32,23 +32,13 @@ internal enum ExtractMode : byte
 /// </summary>
 internal readonly struct CompiledEdge
 {
-    /// <summary>Parser-specific configuration data (from the parser's construct
-    /// function; replaced by a compiled variant for "repeat").</summary>
-    public readonly object? Data;
-
-    /// <summary>Field name, or null when the value is matched but not extracted ("-").</summary>
-    public readonly string? Name;
-
-    /// <summary>Index of the node this edge branches to when the parser matches.</summary>
-    public readonly int TargetNode;
-
     /// <summary>Index into <see cref="CompiledPdag.TypeRoots"/> when
     /// <see cref="PrsId"/> is the custom-type ID; -1 otherwise.</summary>
     public readonly int CustomTypeIdx;
 
-    /// <summary>Parser ID: index into <see cref="ParserTable.Parsers"/>, or
-    /// <see cref="ParserTable.CustomTypeId"/>.</summary>
-    public readonly byte PrsId;
+    /// <summary>Parser-specific configuration data (from the parser's construct
+    /// function; replaced by a compiled variant for "repeat").</summary>
+    public readonly object? Data;
 
     /// <summary>How this edge's value is produced (decided at compile time
     /// from the parser type and its configuration).</summary>
@@ -58,6 +48,16 @@ internal readonly struct CompiledEdge
     /// the edge without a call. '\0' disables the filter (non-literal edges,
     /// and the rare literal that is empty or starts with NUL).</summary>
     public readonly char LiteralFirstChar;
+
+    /// <summary>Field name, or null when the value is matched but not extracted ("-").</summary>
+    public readonly string? Name;
+
+    /// <summary>Parser ID: index into <see cref="ParserTable.Parsers"/>, or
+    /// <see cref="ParserTable.CustomTypeId"/>.</summary>
+    public readonly byte PrsId;
+
+    /// <summary>Index of the node this edge branches to when the parser matches.</summary>
+    public readonly int TargetNode;
 
     public CompiledEdge(byte prsId, char literalFirstChar, int targetNode,
         int customTypeIdx, object? data, string? name, ExtractMode extract)
@@ -75,19 +75,17 @@ internal readonly struct CompiledEdge
 /// <summary>A compiled PDAG node: a slice of the shared edge array plus terminal info.</summary>
 internal readonly struct CompiledNode
 {
-    /// <summary>Index of this node's first edge in <see cref="CompiledPdag.Edges"/>.</summary>
-    public readonly int EdgeStart;
-
     /// <summary>Number of edges (evaluated in stored order, which is priority order).</summary>
     public readonly int EdgeCount;
 
-    /// <summary>Index into <see cref="CompiledPdag.Terminals"/>, or -1 when no rule ends here.</summary>
-    public readonly int TerminalIdx;
+    /// <summary>Index of this node's first edge in <see cref="CompiledPdag.Edges"/>.</summary>
+    public readonly int EdgeStart;
 
     /// <summary>The builder node's incoming-edge count (DOT display only).</summary>
     public readonly int RefCount;
 
-    public bool IsTerminal => TerminalIdx >= 0;
+    /// <summary>Index into <see cref="CompiledPdag.Terminals"/>, or -1 when no rule ends here.</summary>
+    public readonly int TerminalIdx;
 
     public CompiledNode(int edgeStart, int edgeCount, int terminalIdx, int refCount)
     {
@@ -96,14 +94,16 @@ internal readonly struct CompiledNode
         TerminalIdx = terminalIdx;
         RefCount = refCount;
     }
+
+    public bool IsTerminal => TerminalIdx >= 0;
 }
 
 /// <summary>Metadata of a rule that terminates at a node.</summary>
 internal sealed class TerminalInfo
 {
-    public JsonArray? Tags;
     public string? RulebaseFile;
     public int RulebaseLineNumber;
+    public JsonArray? Tags;
 }
 
 /// <summary>
@@ -115,25 +115,25 @@ internal sealed class TerminalInfo
 /// </summary>
 internal sealed class CompiledPdag
 {
-    /// <summary>All nodes; index 0 is the main component's root.</summary>
-    public required CompiledNode[] Nodes { get; init; }
-
-    /// <summary>All edges, grouped per node in priority order.</summary>
-    public required CompiledEdge[] Edges { get; init; }
-
-    /// <summary>Terminal metadata, indexed by <see cref="CompiledNode.TerminalIdx"/>.</summary>
-    public required TerminalInfo[] Terminals { get; init; }
-
-    /// <summary>Root node index of each user-defined type component.</summary>
-    public required int[] TypeRoots { get; init; }
-
-    /// <summary>Root node index of the main component.</summary>
-    public int RootNode => 0;
+    public int[]? StatsBacktracked;
 
     /// <summary>Per-node usage counters, allocated only with
     /// <see cref="LogNormOptions.CollectStats"/>. Increments are unsynchronized
     /// (racy but benign), exactly like the C library's counters.</summary>
     public int[]? StatsCalled;
 
-    public int[]? StatsBacktracked;
+    /// <summary>All edges, grouped per node in priority order.</summary>
+    public required CompiledEdge[] Edges { get; init; }
+
+    /// <summary>All nodes; index 0 is the main component's root.</summary>
+    public required CompiledNode[] Nodes { get; init; }
+
+    /// <summary>Root node index of the main component.</summary>
+    public int RootNode => 0;
+
+    /// <summary>Terminal metadata, indexed by <see cref="CompiledNode.TerminalIdx"/>.</summary>
+    public required TerminalInfo[] Terminals { get; init; }
+
+    /// <summary>Root node index of each user-defined type component.</summary>
+    public required int[] TypeRoots { get; init; }
 }
