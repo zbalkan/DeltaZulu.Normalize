@@ -167,6 +167,21 @@ internal sealed record CandidateOutput(int Support, double Specificity, string L
 internal sealed record GapOutput(int MinWords, int MaxWords, int Observations, IReadOnlyList<string> Samples, string? SuggestedParser, double ParserConfidence);
 internal sealed record CandidateScore(double Total, double Support, double AnchorQuality, double GapConsistency, double PatternSpecificity);
 
+
+// Tracks the whitespace actually observed at one anchor boundary across matching records, so
+// rendering can reproduce a delimiter other than a single ASCII space (e.g. CSV/pipe-separated
+// logs) instead of always rejoining with ' '.
+internal sealed class SeparatorStats
+{
+    private readonly Dictionary<string, int> _votes = new(StringComparer.Ordinal);
+
+    public void Observe(string separator) => _votes[separator] = _votes.GetValueOrDefault(separator) + 1;
+
+    public string Modal() => _votes.Count == 0
+        ? " "
+        : _votes.OrderByDescending(v => v.Value).ThenBy(v => v.Key, StringComparer.Ordinal).First().Key;
+}
+
 internal sealed class LogClusterMiner(LogClusterOptions options)
 {
     // Reused for both strategies: "materialize" runs this once and caches the array; "stream"
@@ -258,7 +273,7 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
             }
 
             var route = routes.TryGetValue(key, out var r) ? r : (Leading: 0, Trailing: 0);
-            candidate.ObserveGaps(record.Tokens, frequentWords, dictionary, route.Leading, route.Trailing);
+            candidate.ObserveGaps(record.Tokens, record.Separators, frequentWords, dictionary, route.Leading, route.Trailing);
         }
     }
 
@@ -359,6 +374,7 @@ internal sealed class LogClusterMiner(LogClusterOptions options)
 internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
 {
     private readonly List<GapStatistics> _gaps = [];
+    private readonly List<SeparatorStats> _separators = [];
     private long _lastSequence;
     public int AnchorCount => anchors.Length;
     public bool KeepEvidence => _gaps.Count > 0;
@@ -373,17 +389,21 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
         for (var i = 0; i < gapCount; i++)
         {
             _gaps.Add(new GapStatistics(maxSamples));
+            _separators.Add(new SeparatorStats());
         }
     }
 
-    public void ObserveGaps(ReadOnlySpan<int> tokens, ReadOnlySpan<bool> frequentWords, TokenDictionary dictionary, int extraLeadingAnchors = 0, int extraTrailingAnchors = 0)
+    // separators is aligned with tokens: separators[i] is the whitespace immediately before
+    // tokens[i], and separators[^1] is the trailing whitespace after the last token.
+    public void ObserveGaps(ReadOnlySpan<int> tokens, ReadOnlySpan<string> separators, ReadOnlySpan<bool> frequentWords, TokenDictionary dictionary, int extraLeadingAnchors = 0, int extraTrailingAnchors = 0)
     {
         var gapIndex = 0;
         var anchorsSeen = 0;
         var totalAnchorsInRecord = anchors.Length + extraLeadingAnchors + extraTrailingAnchors;
         var gapWords = new List<int>();
-        foreach (var token in tokens)
+        for (var i = 0; i < tokens.Length; i++)
         {
+            var token = tokens[i];
             if (frequentWords[token])
             {
                 anchorsSeen++;
@@ -393,7 +413,9 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
                     continue;
                 }
 
-                _gaps[gapIndex++].Observe(gapWords, dictionary);
+                _gaps[gapIndex].Observe(gapWords, dictionary);
+                _separators[gapIndex].Observe(separators[i]);
+                gapIndex++;
                 gapWords.Clear();
             }
             else
@@ -402,6 +424,7 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
             }
         }
         _gaps[gapIndex].Observe(gapWords, dictionary);
+        _separators[gapIndex].Observe(separators[^1]);
     }
 
     public void ObserveSupport(long sequenceNumber)
@@ -424,27 +447,20 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
     public CandidateOutput ToOutput(int recordCount, TokenDictionary dictionary)
     {
         var renderedGaps = _gaps.Select(g => g.ToOutput()).ToArray();
+        var separators = _separators.Select(s => s.Modal()).ToArray();
         var score = CandidateScorer.Score(Support, recordCount, anchors.Length, renderedGaps);
         var specificity = anchors.Length / (double)Math.Max(1, anchors.Length + renderedGaps.Count(g => g.MaxWords > 0));
         return new CandidateOutput(
             Support,
             specificity,
-            RenderLogCluster(anchors, renderedGaps, dictionary),
-            RenderRule(anchors, renderedGaps, dictionary, out var isExecutableRule, out var ruleWarnings),
+            RenderLogCluster(anchors, renderedGaps, separators, dictionary),
+            RenderRule(anchors, renderedGaps, separators, dictionary, out var isExecutableRule, out var ruleWarnings),
             isExecutableRule,
             ruleWarnings, renderedGaps,
             score);
     }
 
-    private static void AddGap(List<string> parts, GapOutput gap)
-    {
-        if (gap.MaxWords > 0)
-        {
-            parts.Add($"*{{{gap.MinWords},{gap.MaxWords}}}");
-        }
-    }
-
-    private static void AddRuleGap(List<string> parts, GapOutput gap, bool isTrailing, ref int field, List<string> warnings)
+    private static void AddRuleGap(Action<string, int> append, int gapIndex, GapOutput gap, bool isTrailing, ref int field, List<string> warnings)
     {
         if (gap.MaxWords == 0)
         {
@@ -453,8 +469,7 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
 
         if (!isTrailing && (gap.MinWords == 0 || gap.MaxWords > 1 || string.IsNullOrEmpty(gap.SuggestedParser)))
         {
-            parts.Add($"/* unresolved gap: {gap.MinWords}-{gap.MaxWords} words */");
-            warnings.Add($"Internal gap {field} spans {gap.MinWords}-{gap.MaxWords} words and cannot be rendered as an executable liblognorm parser.");
+            append($"/* unresolved gap: {gap.MinWords}-{gap.MaxWords} words */", gapIndex); warnings.Add($"Internal gap {field} spans {gap.MinWords}-{gap.MaxWords} words and cannot be rendered as an executable liblognorm parser.");
             return;
         }
 
@@ -464,41 +479,69 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
             parser = LiblognormMotifs.Rest;
         }
 
-        parts.Add($"%field{field++}:{parser}%");
+        append($"%field{field++}:{parser}%", gapIndex);
     }
 
     private static string EscapeLiteral(string token) => token.Contains('%') || token.Contains(':')
         ? token.Replace("%", "%%", StringComparison.Ordinal).Replace(":", "\\x3a", StringComparison.Ordinal)
         : token;
 
-    private static string RenderLogCluster(int[] anchors, GapOutput[] gaps, TokenDictionary dictionary)
+    // separators[i] is the modal separator observed immediately before anchor i (or, for the
+    // final entry, the modal trailing separator); reused as the join before whichever rendered
+    // part (gap placeholder or anchor literal) falls at that boundary.
+    private static string RenderLogCluster(int[] anchors, GapOutput[] gaps, string[] separators, TokenDictionary dictionary)
     {
-        var parts = new List<string>(anchors.Length + gaps.Length);
+        var builder = new StringBuilder();
+        void Append(string text, int gapIndex)
+        {
+            if (builder.Length > 0)
+            {
+                builder.Append(separators[gapIndex]);
+            }
+            builder.Append(text);
+        }
+
         for (var i = 0; i < anchors.Length; i++)
         {
-            AddGap(parts, gaps[i]);
-            parts.Add(dictionary[anchors[i]]);
+            if (gaps[i].MaxWords > 0)
+            {
+                Append($"*{{{gaps[i].MinWords},{gaps[i].MaxWords}}}", i);
+            }
+            Append(dictionary[anchors[i]], i);
         }
-        AddGap(parts, gaps[^1]);
-        return string.Join(' ', parts);
+
+        if (gaps[^1].MaxWords > 0)
+        {
+            Append($"*{{{gaps[^1].MinWords},{gaps[^1].MaxWords}}}", anchors.Length);
+        }
+        return builder.ToString();
     }
 
-    private static string RenderRule(int[] anchors, GapOutput[] gaps, TokenDictionary dictionary, out bool isExecutable, out IReadOnlyList<string> warnings)
+    private static string RenderRule(int[] anchors, GapOutput[] gaps, string[] separators, TokenDictionary dictionary, out bool isExecutable, out IReadOnlyList<string> warnings)
     {
-        var parts = new List<string>(anchors.Length + gaps.Length);
+        var builder = new StringBuilder();
+        void Append(string text, int gapIndex)
+        {
+            if (builder.Length > 0)
+            {
+                builder.Append(separators[gapIndex]);
+            }
+            builder.Append(text);
+        }
+
         var ruleWarnings = new List<string>();
         var field = 1;
 
         for (var i = 0; i < anchors.Length; i++)
         {
-            AddRuleGap(parts, gaps[i], isTrailing: false, ref field, ruleWarnings);
-            parts.Add(EscapeLiteral(dictionary[anchors[i]]));
+            AddRuleGap(Append, i, gaps[i], isTrailing: false, ref field, ruleWarnings);
+            Append(EscapeLiteral(dictionary[anchors[i]]), i);
         }
 
-        AddRuleGap(parts, gaps[^1], isTrailing: true, ref field, ruleWarnings);
+        AddRuleGap(Append, anchors.Length, gaps[^1], isTrailing: true, ref field, ruleWarnings);
         isExecutable = ruleWarnings.Count == 0;
         warnings = ruleWarnings;
-        return string.Join(' ', parts);
+        return builder.ToString();
     }
 }
 
@@ -554,7 +597,11 @@ internal sealed class TokenDictionary
     }
 }
 
-internal sealed record TokenizedRecord(long SequenceNumber, int[] Tokens)
+// Separators is aligned with Tokens: Separators[i] is the whitespace run immediately before
+// Tokens[i], and Separators[^1] (length Tokens.Length + 1) is the trailing whitespace after the
+// last token. This lets rendering reproduce the delimiter actually observed at each anchor
+// boundary instead of always rejoining with a single ASCII space.
+internal sealed record TokenizedRecord(long SequenceNumber, int[] Tokens, string[] Separators)
 {
     // Shared by both mining strategies: "materialize" calls ToArray() on this once and caches
     // the result; "stream" leaves it lazy and re-enumerates recordSource() through it once per
@@ -575,16 +622,16 @@ internal sealed record TokenizedRecord(long SequenceNumber, int[] Tokens)
             {
                 throw new LogClusterInputTooLargeException($"input exceeds --max-input-bytes ({maxInputBytes}); use a smaller input or increase the limit");
             }
-            yield return new TokenizedRecord(record.SequenceNumber, Tokenize(record.Message, dictionary));
+            var (tokens, separators) = Tokenize(record.Message, dictionary);
+            yield return new TokenizedRecord(record.SequenceNumber, tokens, separators);
         }
     }
 
-    // Word boundaries collapse any run of whitespace (tabs, repeated spaces, ...) into a single split point,
-    // and the original separator is discarded. Rendered rules/patterns rejoin tokens with a single ASCII
-    // space, so they are a best-effort approximation for records whose delimiters are not a single space.
-    private static int[] Tokenize(string message, TokenDictionary dictionary)
+    private static (int[] Tokens, string[] Separators) Tokenize(string message, TokenDictionary dictionary)
     {
         var tokens = new List<int>();
+        var separators = new List<string>();
+        var separatorStart = 0;
         var start = -1;
         for (var i = 0; i <= message.Length; i++)
         {
@@ -597,11 +644,14 @@ internal sealed record TokenizedRecord(long SequenceNumber, int[] Tokens)
             }
             else if (start >= 0)
             {
+                separators.Add(message[separatorStart..start]);
                 tokens.Add(dictionary.GetOrAdd(message, start, i - start));
+                separatorStart = i;
                 start = -1;
             }
         }
-        return tokens.ToArray();
+        separators.Add(message[separatorStart..]);
+        return (tokens.ToArray(), separators.ToArray());
     }
 }
 

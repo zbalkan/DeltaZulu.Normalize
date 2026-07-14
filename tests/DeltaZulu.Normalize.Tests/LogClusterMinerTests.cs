@@ -66,6 +66,21 @@ public class LogClusterMinerTests
     }
 
     [TestMethod]
+    public void Mine_PreservesOriginalTabDelimiterInRenderedPattern()
+    {
+        var options = LogClusterOptions.Parse(["--min-support", "2"]);
+        var records = new[] {
+            new LogRecord(1, "user1\tlogin\tsuccess", "test"),
+            new LogRecord(2, "user2\tlogin\tsuccess", "test"),
+        };
+
+        var result = new LogClusterMiner(options).Mine(records);
+        var candidate = result.Candidates.Single();
+
+        Assert.AreEqual("*{1,1}\tlogin\tsuccess", candidate.LogClusterPattern);
+    }
+
+    [TestMethod]
     public void Mine_ThrowsWhenInputBytesExceedMaxInputBytes()
     {
         var options = LogClusterOptions.Parse(["--max-input-bytes", "10"]);
