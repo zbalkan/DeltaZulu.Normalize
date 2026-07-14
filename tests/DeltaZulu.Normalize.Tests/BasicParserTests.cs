@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using static DeltaZulu.Normalize.Tests.TestHelpers;
 
 namespace DeltaZulu.Normalize.Tests;
@@ -197,6 +198,33 @@ public class BasicParserTests
 
         Assert.AreEqual(ErrorCodes.BadConfig, r);
         Assert.Contains(e => e.Contains("option.dashIsEmpty", StringComparison.Ordinal), errors);
+    }
+
+
+    [TestMethod]
+    public void Include_UsesLegacyLiblognormRulebasesEnvironmentFallback()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dzn-rb-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var oldNew = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES");
+        var oldLegacy = Environment.GetEnvironmentVariable("LIBLOGNORM_RULEBASES");
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "inc.rulebase"), "version=2\nrule=:%mac:mac48%\n");
+            Environment.SetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES", null);
+            Environment.SetEnvironmentVariable("LIBLOGNORM_RULEBASES", dir);
+
+            var ctx = new LogNormContext();
+            Assert.AreEqual(0, ctx.LoadSamplesFromString("include=inc.rulebase"));
+            Assert.AreEqual(0, ctx.Normalize("f0:f6:1c:5f:cc:a2", out JsonObject json));
+            AssertJsonEquals("""{ "mac": "f0:f6:1c:5f:cc:a2" }""", json);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES", oldNew);
+            Environment.SetEnvironmentVariable("LIBLOGNORM_RULEBASES", oldLegacy);
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     [TestMethod]

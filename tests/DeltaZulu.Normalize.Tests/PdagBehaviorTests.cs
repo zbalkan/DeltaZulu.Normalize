@@ -138,6 +138,23 @@ public class PdagBehaviorTests
             TestHelpers.Normalize(rb, "an ip address 2001:DB8:0:1::10:1FF").Json);
     }
 
+
+    [TestMethod]
+    public void FullJsonFieldFollowedByEscapedPercentKeepsRuleOnOneLogicalLine()
+    {
+        const string rb = """
+            rule=:Rule-ID: %.:string{"matching.permitted":[
+                {"class":"digit"},
+                {"chars":"abcdefghijklmnopqrstuvwxyz"},
+                {"chars":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
+                {"chars":"-"},
+            ], "quoting.escape.mode":"none", "matching.mode":"lazy"}%%resta:rest%
+            """;
+
+        AssertJsonEquals("""{ ".": "XY7azl704-84a39894783423467a33f5b48bccd23c-a0n63i2", "resta": " LWL" }""",
+            TestHelpers.Normalize(rb, "Rule-ID: XY7azl704-84a39894783423467a33f5b48bccd23c-a0n63i2 LWL").Json);
+    }
+
     [TestMethod]
     public void Prefix_LineIsPrependedToEveryRule()
     {

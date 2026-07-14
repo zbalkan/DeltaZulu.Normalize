@@ -703,7 +703,20 @@ internal static class RulebaseLoader
             {
                 if (c == '%')
                 {
-                    inField = !inField;
+                    if (inField)
+                    {
+                        inField = false;
+                    }
+                    else if (pos < text.Length && text[pos] == '%')
+                    {
+                        buf.Append(c);
+                        buf.Append(text[pos++]);
+                        continue;
+                    }
+                    else
+                    {
+                        inField = true;
+                    }
                 }
 
                 buf.Append(c);
@@ -718,7 +731,8 @@ internal static class RulebaseLoader
             return directory;
         }
 
-        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES");
+        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES")
+                    ?? Environment.GetEnvironmentVariable("LIBLOGNORM_RULEBASES");
         if (rbLib == null || Path.IsPathRooted(directory))
         {
             return null;
@@ -735,7 +749,8 @@ internal static class RulebaseLoader
             return file;
         }
 
-        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES");
+        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES")
+                    ?? Environment.GetEnvironmentVariable("LIBLOGNORM_RULEBASES");
         if (rbLib == null || Path.IsPathRooted(file))
         {
             return null;
