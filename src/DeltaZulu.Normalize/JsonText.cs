@@ -23,7 +23,6 @@ internal static class JsonText
     public static readonly JsonSerializerOptions SerializerOptions = new() {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
-
     /// <summary>
     /// Read an integer the way json-c's json_object_get_int64 does: numbers
     /// convert directly, but a JSON *string* is also accepted and parsed as
@@ -97,7 +96,19 @@ internal static class JsonText
         }
         catch (JsonException)
         {
-            return false;
+            if (!TryNormalizeLenientJson(text.AsSpan(offs, endExclusive - offs), out var normalized))
+            {
+                return false;
+            }
+
+            try
+            {
+                node = JsonSerializer.Deserialize<JsonNode?>(normalized);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
         }
 
         charsConsumed = endExclusive - offs;
@@ -110,6 +121,87 @@ internal static class JsonText
 
         return true;
     }
+
+
+    /// <summary>
+    /// Apply the small json-c leniencies seen in upstream rulebases but not
+    /// accepted by System.Text.Json: Python-style True/False literals and a
+    /// trailing comma before an object/array close. The transform is lexical
+    /// and deliberately leaves string contents untouched.
+    /// </summary>
+    private static bool TryNormalizeLenientJson(ReadOnlySpan<char> input, out string normalized)
+    {
+        var sb = new System.Text.StringBuilder(input.Length);
+        var inString = false;
+        var escaped = false;
+        var changed = false;
+
+        for (var i = 0; i < input.Length; ++i)
+        {
+            var c = input[i];
+
+            if (inString)
+            {
+                sb.Append(c);
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (c == '\\')
+                {
+                    escaped = true;
+                }
+                else if (c == '"')
+                {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                sb.Append(c);
+            }
+            else if (c == ',' && IsTrailingComma(input, i + 1))
+            {
+                changed = true;
+            }
+            else if (input[i..].StartsWith("True".AsSpan()) && IsJsonTokenBoundary(input, i - 1) && IsJsonTokenBoundary(input, i + 4))
+            {
+                sb.Append("true");
+                i += 3;
+                changed = true;
+            }
+            else if (input[i..].StartsWith("False".AsSpan()) && IsJsonTokenBoundary(input, i - 1) && IsJsonTokenBoundary(input, i + 5))
+            {
+                sb.Append("false");
+                i += 4;
+                changed = true;
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        normalized = changed ? sb.ToString() : string.Empty;
+        return changed;
+    }
+
+    private static bool IsTrailingComma(ReadOnlySpan<char> input, int index)
+    {
+        while (index < input.Length && TextRules.IsSpace(input[index]))
+        {
+            ++index;
+        }
+
+        return index < input.Length && (input[index] == '}' || input[index] == ']');
+    }
+
+    private static bool IsJsonTokenBoundary(ReadOnlySpan<char> input, int index)
+        => index < 0 || index >= input.Length || TextRules.IsSpace(input[index])
+           || input[index] is ':' or ',' or '[' or ']' or '{' or '}';
 
     /// <summary>
     /// Locate the syntactic end of the leading JSON object/array so callers

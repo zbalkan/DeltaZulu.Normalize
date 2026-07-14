@@ -33,6 +33,19 @@ public class PdagBehaviorTests
     }
 
     [TestMethod]
+    public void Alternative_AcceptsNestedSequenceWithTrailingCommas()
+    {
+        const string rb = """
+            rule=:a %{ "type":"alternative", "parser":[
+                [ {"type":"number", "name":"num1"}, {"type":"literal", "text":":"}, {"type":"number", "name":"num"}, ],
+                {"type":"hexnumber", "name":"hex"}
+            ] }% b
+            """;
+        AssertJsonEquals("""{ "num1": "47", "num": "11" }""", TestHelpers.Normalize(rb, "a 47:11 b").Json);
+        AssertJsonEquals("""{ "hex": "0x4711" }""", TestHelpers.Normalize(rb, "a 0x4711 b").Json);
+    }
+
+    [TestMethod]
     public void Annotate_AddsStaticFieldsPerTag()
     {
         const string rb = """
@@ -99,6 +112,19 @@ public class PdagBehaviorTests
     }
 
     [TestMethod]
+    public void CustomType_NestedDotDotUnwrapsUnderNamedIntermediateType()
+    {
+        const string rb = """
+            type=@byte:%..:hexnumber%
+            type=@twobytes:%f1:@byte% %f2:@byte%
+            rule=:two bytes %.:@twobytes% stop
+            """;
+
+        AssertJsonEquals("""{ "f1":"0xff", "f2":"0x16" }""",
+            TestHelpers.Normalize(rb, "two bytes 0xff 0x16 stop").Json);
+    }
+
+    [TestMethod]
     public void CustomType_NamedFieldInsideTypeDefinition()
     {
         const string rb = """
@@ -133,6 +159,24 @@ public class PdagBehaviorTests
             """;
         AssertJsonEquals("""{ "w2": "w2", "w1": "w1" }""", TestHelpers.Normalize(rb, "a word w1 another word w2").Json);
         AssertJsonEquals("""{ "w1": "w1" }""", TestHelpers.Normalize(rb, "a word w1").Json);
+    }
+
+    [TestMethod]
+    public void Repeat_AcceptsNestedAlternativeWithTrailingCommas()
+    {
+        const string rb = """
+            rule=:a %{ "name":"numbers", "type":"repeat",
+                "parser": { "type":"alternative", "parser":[
+                    [ {"type":"number", "name":"n1"}, {"type":"literal", "text":":"}, {"type":"number", "name":"n2"}, ],
+                    {"type":"hexnumber", "name":"hex"}
+                ] },
+                "while":[ {"type":"literal", "text":", "} ]
+            }% b
+            """;
+        AssertJsonEquals("""{ "numbers":[ { "n1":"1", "n2":"2" }, { "n1":"3", "n2":"4" } ] }""",
+            TestHelpers.Normalize(rb, "a 1:2, 3:4 b").Json);
+        AssertJsonEquals("""{ "numbers":[ { "hex":"0x4711" } ] }""",
+            TestHelpers.Normalize(rb, "a 0x4711 b").Json);
     }
 
     [TestMethod]

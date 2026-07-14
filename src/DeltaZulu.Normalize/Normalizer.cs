@@ -365,6 +365,7 @@ internal static class Normalizer
         {
             var sub = new FieldCollector();
             var endNode = NoNode;
+            npb.ParsedTo = offs;
             var r = NormalizeRec(npb, npb.Snap.TypeRoots[prs.CustomTypeIdx], offs, bPartialMatch: true,
                 sub, ref endNode, failOnDuplicate: false, cur: null, parserName: prs.Name);
             value = r == 0 ? FieldValue.Object(sub) : default;
@@ -450,6 +451,7 @@ internal static class Normalizer
                 return ErrorCodes.WrongParser;
             }
             var endNode = NoNode;
+            npb.ParsedTo = offs;
             if (failOnDuplicate)
             {
                 valueMaterialized = true;

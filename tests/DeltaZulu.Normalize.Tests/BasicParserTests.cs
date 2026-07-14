@@ -179,6 +179,15 @@ public class BasicParserTests
     }
 
     [TestMethod]
+    public void StringParser_DashIsEmptyAcceptsPythonBooleanAndRejectsQuotedDash()
+    {
+        const string rb = """rule=:%str:string{"option.dashIsEmpty":True}%""";
+
+        AssertJsonEquals("""{ "str": "" }""", TestHelpers.Normalize(rb, "-").Json);
+        Assert.AreNotEqual(0, TestHelpers.Normalize(rb, "\"-\"").Result);
+    }
+
+    [TestMethod]
     public void StringParser_RejectsNonBooleanDashIsEmpty()
     {
         var errors = new List<string>();

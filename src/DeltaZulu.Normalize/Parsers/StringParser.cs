@@ -268,13 +268,17 @@ internal static class StringParser
             ++parsed; /* skip quote */
         }
 
+        if (data.DashIsEmpty && haveQuotes && parsed == 3 && s.AsSpan(offs, 3).SequenceEqual("\"-\""))
+        {
+            return ErrorCodes.WrongParser;
+        }
+
         if (wantValue)
         {
             if (data.DashIsEmpty)
             {
-                var isQuotedDash = haveQuotes && parsed == 3 && s.AsSpan(offs, 3).SequenceEqual("\"-\"");
                 var isBareDash = !haveQuotes && parsed == 1 && s[offs] == '-';
-                if (isQuotedDash || isBareDash)
+                if (isBareDash)
                 {
                     value = JsonValue.Create(string.Empty);
                     return 0;
