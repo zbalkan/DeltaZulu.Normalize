@@ -6,6 +6,58 @@ namespace DeltaZulu.Normalize.Tests;
 public class LogClusterMinerTests
 {
     [TestMethod]
+    public void GapStatistics_MultiWordGap_IsAlwaysForcedToRestRegardlessOfConfidence()
+    {
+        // No motif regex tolerates the internal space a 2+-word sample always contains once
+        // joined, so a gap that ever sees 2+ words can never accumulate a parser vote for that
+        // observation; MaxWords > 1 therefore always drags confidence below 1.0 and this branch
+        // always fires. This test pins that invariant directly at the GapStatistics level,
+        // rather than only indirectly through LogClusterMiner.Mine's rendering.
+        var dictionary = new TokenDictionary();
+        var gap = new GapStatistics(maxSamples: 8);
+        var first = dictionary.GetOrAdd("10", 0, 2);
+        var second = dictionary.GetOrAdd("0", 0, 1);
+        gap.Observe([first, second], dictionary);
+        gap.Observe([first, second], dictionary);
+
+        var output = gap.ToOutput();
+
+        Assert.AreEqual(2, output.MaxWords);
+        Assert.AreEqual("rest", output.SuggestedParser);
+        Assert.AreEqual(0.0, output.ParserConfidence, 0.001);
+    }
+
+    [TestMethod]
+    public void GapStatistics_NoObservations_ReturnsNullParserAndZeroConfidence()
+    {
+        var output = new GapStatistics(maxSamples: 8).ToOutput();
+
+        Assert.AreEqual(0, output.MinWords);
+        Assert.AreEqual(0, output.MaxWords);
+        Assert.AreEqual(0, output.Observations);
+        Assert.IsNull(output.SuggestedParser);
+        Assert.AreEqual(0.0, output.ParserConfidence, 0.001);
+    }
+
+    [TestMethod]
+    public void GapStatistics_SingleWordConsistentMotif_KeepsSpecificParserWithFullConfidence()
+    {
+        var dictionary = new TokenDictionary();
+        var gap = new GapStatistics(maxSamples: 8);
+        foreach (var address in new[] { "10.0.0.1", "10.0.0.2", "10.0.0.3" })
+        {
+            var token = dictionary.GetOrAdd(address, 0, address.Length);
+            gap.Observe([token], dictionary);
+        }
+
+        var output = gap.ToOutput();
+
+        Assert.AreEqual(1, output.MaxWords);
+        Assert.AreEqual("ipv4", output.SuggestedParser);
+        Assert.AreEqual(1.0, output.ParserConfidence, 0.001);
+    }
+
+    [TestMethod]
     public void InternalMultiwordGaps_AreRenderedAsUnresolvedSketchesNotRestParsers()
     {
         var options = LogClusterOptions.Parse(["--min-support", "2"]);
