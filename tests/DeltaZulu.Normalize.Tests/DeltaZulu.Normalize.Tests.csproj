@@ -12,7 +12,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DeltaZulu.Normalize\DeltaZulu.Normalize.csproj" />
-    <ProjectReference Include="../../src/tools/LogCluster.Cli/LogCluster.Cli.csproj" />
   </ItemGroup>
 
 </Project>

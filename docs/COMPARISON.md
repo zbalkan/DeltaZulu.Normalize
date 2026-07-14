@@ -289,7 +289,7 @@ and running the real C library)
   abort, single-".." unwrap, unnamed-field drop) are ported onto the
   collector unchanged.
 
-## 4. API, error codes, `annotate=`, CLI, LogCluster.NET, and test-suite breadth
+## 4. API, error codes, `annotate=`, CLI, and test-suite breadth
 
 ### Confirmed (already documented, verified accurate)
 
@@ -357,10 +357,6 @@ and running the real C library)
   variants) is much thinner in C# (1 test) than upstream (9 dedicated
   fixtures).
 
-
-### LogCluster.NET documentation update
-
-The LogCluster.NET tool has grown beyond the original short README note. It now documents and exposes the large-input safety guard (`--max-records`, `--max-input-bytes`), materialize-vs-stream mining strategy controls (`--materialize`, `--stream`), tunable score weights, low-diversity single-anchor merging via `--wweight-threshold`, shifted-candidate merging, delimiter-preserving rendering, unresolved-gap rule warnings, and optional outlier reporting (`--outliers`, `--max-outlier-samples`). These are C# tool capabilities rather than liblognorm normalization semantics, so they are intentionally summarized here instead of treated as upstream deviations.
 
 ## Summary: what to do with this
 

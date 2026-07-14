@@ -7,7 +7,6 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="src/tools/LogNormalizer.Cli/LogNormalizer.Cli.csproj" />
-    <Project Path="src/tools/LogCluster.Cli/LogCluster.Cli.csproj" />
   </Folder>
   <Folder Name="/bench/">
     <Project Path="src/bench/DeltaZulu.Normalize.Benchmarks/DeltaZulu.Normalize.Benchmarks.csproj" />
