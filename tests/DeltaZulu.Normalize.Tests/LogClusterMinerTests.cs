@@ -44,6 +44,28 @@ public class LogClusterMinerTests
     }
 
     [TestMethod]
+    public void Mine_MergesTrailingAnchorShiftedVariantsIntoOneCandidate()
+    {
+        var options = LogClusterOptions.Parse(["--min-support", "2"]);
+        var records = new[] {
+            new LogRecord(1, "Interface down node1", "test"),
+            new LogRecord(2, "Interface down node2", "test"),
+            new LogRecord(3, "Interface down node3 restart", "test"),
+            new LogRecord(4, "Interface down node4 restart", "test"),
+        };
+
+        var result = new LogClusterMiner(options).Mine(records);
+        var matches = result.Candidates.Where(c => c.LogClusterPattern.StartsWith("Interface down", StringComparison.Ordinal)).ToArray();
+
+        Assert.HasCount(1, matches);
+        var merged = matches[0];
+        Assert.AreEqual(4, merged.Support);
+        var trailingGap = merged.Gaps[^1];
+        Assert.AreEqual(1, trailingGap.MinWords);
+        Assert.AreEqual(2, trailingGap.MaxWords);
+    }
+
+    [TestMethod]
     public void Mine_ThrowsWhenInputBytesExceedMaxInputBytes()
     {
         var options = LogClusterOptions.Parse(["--max-input-bytes", "10"]);
