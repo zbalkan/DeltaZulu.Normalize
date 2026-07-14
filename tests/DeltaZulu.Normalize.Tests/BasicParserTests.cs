@@ -185,7 +185,10 @@ public class BasicParserTests
         const string rb = """rule=:%str:string{"option.dashIsEmpty":True}%""";
 
         AssertJsonEquals("""{ "str": "" }""", TestHelpers.Normalize(rb, "-").Json);
-        Assert.AreNotEqual(0, TestHelpers.Normalize(rb, "\"-\"").Result);
+
+        var quotedDash = TestHelpers.Normalize(rb, "\"-\"");
+        Assert.AreNotEqual(0, quotedDash.Result);
+        AssertJsonEquals("""{ "originalmsg": "\"-\"", "unparsed-data": "\"-\"" }""", quotedDash.Json);
     }
 
     [TestMethod]
@@ -200,6 +203,28 @@ public class BasicParserTests
         Assert.Contains(e => e.Contains("option.dashIsEmpty", StringComparison.Ordinal), errors);
     }
 
+
+    [TestMethod]
+    public void Include_ResolvesRelativeToIncludingRulebaseFile()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dzn-rb-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var main = Path.Combine(dir, "main.rulebase");
+            File.WriteAllText(main, "version=2\ninclude=inc.rulebase\n");
+            File.WriteAllText(Path.Combine(dir, "inc.rulebase"), "version=2\nrule=:%mac:mac48%\n");
+
+            var ctx = new LogNormContext();
+            Assert.AreEqual(0, ctx.LoadSamples(main));
+            Assert.AreEqual(0, ctx.Normalize("f0:f6:1c:5f:cc:a2", out JsonObject json));
+            AssertJsonEquals("""{ "mac": "f0:f6:1c:5f:cc:a2" }""", json);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 
     [TestMethod]
     public void Include_UsesLegacyLiblognormRulebasesEnvironmentFallback()

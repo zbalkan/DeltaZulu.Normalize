@@ -268,7 +268,10 @@ internal static class StringParser
             ++parsed; /* skip quote */
         }
 
-        if (data.DashIsEmpty && haveQuotes && parsed == 3 && s.AsSpan(offs, 3).SequenceEqual("\"-\""))
+        if (data.DashIsEmpty && haveQuotes && parsed == 3
+            && s[offs] == data.QCharBegin
+            && s[offs + 1] == '-'
+            && s[offs + 2] == data.QCharEnd)
         {
             return ErrorCodes.WrongParser;
         }

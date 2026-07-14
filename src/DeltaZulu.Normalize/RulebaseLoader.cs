@@ -529,10 +529,27 @@ internal static class RulebaseLoader
         var fname = line[offs..].TrimEnd();
         var savedFile = ctx.ConfFile;
         var savedLine = ctx.ConfLineNumber;
-        var r = ctx.LoadSamples(fname);
+        var r = LoadIncludedRulebase(ctx, fname);
         ctx.ConfFile = savedFile;
         ctx.ConfLineNumber = savedLine;
         return r;
+    }
+
+    private static int LoadIncludedRulebase(LogNormContext ctx, string includePath)
+    {
+        if (!Path.IsPathRooted(includePath)
+            && ctx.ConfFile is { } confFile
+            && confFile != "--NO-FILE--"
+            && Path.GetDirectoryName(confFile) is { Length: > 0 } confDir)
+        {
+            var relative = Path.Combine(confDir, includePath);
+            if (File.Exists(relative) || Directory.Exists(relative))
+            {
+                return ctx.LoadSamples(relative);
+            }
+        }
+
+        return ctx.LoadSamples(includePath);
     }
 
     private static int ProcessLine(LogNormContext ctx, string line)
@@ -731,15 +748,21 @@ internal static class RulebaseLoader
             return directory;
         }
 
-        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES")
-                    ?? Environment.GetEnvironmentVariable("LIBLOGNORM_RULEBASES");
-        if (rbLib == null || Path.IsPathRooted(directory))
+        if (Path.IsPathRooted(directory))
         {
             return null;
         }
 
-        var candidate = Path.Combine(rbLib, directory);
-        return Directory.Exists(candidate) ? candidate : null;
+        foreach (var rbLib in RulebaseSearchDirectories())
+        {
+            var candidate = Path.Combine(rbLib, directory);
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     private static string? ResolveRulebasePath(string file)
@@ -749,15 +772,36 @@ internal static class RulebaseLoader
             return file;
         }
 
-        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES")
-                    ?? Environment.GetEnvironmentVariable("LIBLOGNORM_RULEBASES");
-        if (rbLib == null || Path.IsPathRooted(file))
+        if (Path.IsPathRooted(file))
         {
             return null;
         }
 
-        var candidate = Path.Combine(rbLib, file);
-        return File.Exists(candidate) ? candidate : null;
+        foreach (var rbLib in RulebaseSearchDirectories())
+        {
+            var candidate = Path.Combine(rbLib, file);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> RulebaseSearchDirectories()
+    {
+        var rbLib = Environment.GetEnvironmentVariable("DeltaZulu.Normalize_RULEBASES")
+                    ?? Environment.GetEnvironmentVariable("LIBLOGNORM_RULEBASES");
+        if (string.IsNullOrEmpty(rbLib))
+        {
+            yield break;
+        }
+
+        foreach (var dir in rbLib.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            yield return dir;
+        }
     }
 
     private static int RunLoad(LogNormContext ctx, string text, bool checkRunaway)
