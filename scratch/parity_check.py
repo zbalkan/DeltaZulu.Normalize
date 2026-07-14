@@ -61,7 +61,11 @@ SKIP_SUBSTRINGS = ("_v1.sh", "turbo", "err_callback", "very_long_logline")
 # DOTALL permits quoted bodies to span physical lines. MULTILINE keeps ^ and $
 # anchored to individual fixture lines around each call.
 CALL_RE = re.compile(
-    r"""^[ \t]*(?:(reset_rules)\b[ \t]*(?:\#[^\n]*)?$|(add_rule|execute|execute_with_string)\s+(['"])(.*?)\3[ \t]*(?:\#[^\n]*)?$)""",
+    r"""^[ \t]*(?:"""
+    r"""(reset_rules)\b(?:\s+([A-Za-z0-9_.-]+))?[ \t]*(?:\#[^\n]*)?$"""
+    r"""|"""
+    r"""(add_rule|execute|execute_with_string)\s+(['"])(.*?)\4"""
+    r"""(?:\s+([A-Za-z0-9_.-]+))?[ \t]*(?:\#[^\n]*)?$)""",
     re.MULTILINE | re.DOTALL,
 )
 
@@ -126,6 +130,7 @@ class TestCase:
     fixture_case_number: int
     rulebase_text: str
     message: str
+    auxiliary_rulebases: dict[str, str]
 
     @property
     def label(self) -> str:
@@ -348,19 +353,19 @@ def verify_dotnet(config: Configuration) -> str:
     return completed.stdout.strip()
 
 
-def extract_calls(path: Path) -> list[tuple[str, str | None]]:
+def extract_calls(path: Path) -> list[tuple[str, str | None, str | None]]:
     """Return recognized fixture calls in source order."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
         raise SetupError(f"cannot read fixture {path}: {exc}") from exc
 
-    calls: list[tuple[str, str | None]] = []
+    calls: list[tuple[str, str | None, str | None]] = []
     for match in CALL_RE.finditer(text):
         if match.group(1):
-            calls.append(("reset", None))
+            calls.append(("reset", None, match.group(2)))
         else:
-            calls.append((match.group(2), match.group(4)))
+            calls.append((match.group(3), match.group(5), match.group(6)))
     return calls
 
 
@@ -380,24 +385,27 @@ def discover_cases(
             continue
 
         calls = extract_calls(path)
-        if not any(function == "add_rule" for function, _ in calls):
+        if not any(function == "add_rule" for function, _, _ in calls):
             stats.skipped_without_rules += 1
             if verbose:
                 print(f"[DISCOVERY] skip fixture without add_rule: {base}", file=sys.stderr)
             continue
 
         stats.fixture_files_selected += 1
-        rulebase_lines: list[str] = []
+        rulebases: dict[str, list[str]] = {"main": []}
         fixture_case_number = 0
 
-        for function, body in calls:
+        for function, body, target in calls:
+            target_name = target or "main"
+            lines = rulebases.setdefault(target_name, [])
+
             if function == "reset":
-                rulebase_lines.clear()
+                lines.clear()
                 continue
 
             if function == "add_rule":
                 assert body is not None
-                rulebase_lines.append(body)
+                lines.append(body)
                 continue
 
             if function == "execute_with_string":
@@ -408,20 +416,27 @@ def discover_cases(
                 continue
 
             assert body is not None
-            if not rulebase_lines:
+            main_rulebase_lines = rulebases.get("main", [])
+            if not main_rulebase_lines:
                 stats.skipped_without_rulebase += 1
                 continue
-            if not any(line.lstrip().startswith("version=") for line in rulebase_lines):
+            if not any(line.lstrip().startswith("version=") for line in main_rulebase_lines):
                 stats.skipped_without_version += 1
                 continue
 
             fixture_case_number += 1
+            auxiliary_rulebases = {
+                f"{name}.rulebase": "\n".join(aux_lines) + "\n"
+                for name, aux_lines in rulebases.items()
+                if name != "main" and aux_lines
+            }
             cases.append(
                 TestCase(
                     fixture=path,
                     fixture_case_number=fixture_case_number,
-                    rulebase_text="\n".join(rulebase_lines) + "\n",
+                    rulebase_text="\n".join(main_rulebase_lines) + "\n",
                     message=body,
+                    auxiliary_rulebases=auxiliary_rulebases,
                 )
             )
 
@@ -429,30 +444,26 @@ def discover_cases(
 
 
 @contextmanager
-def temporary_rulebase(text: str, *, keep: bool) -> Iterator[Path]:
-    path: Path | None = None
+def temporary_rulebase(case: TestCase, *, keep: bool) -> Iterator[tuple[Path, Path]]:
+    temp_dir = Path(tempfile.mkdtemp(prefix="lognormalizer-parity-"))
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            suffix=".rb",
-            prefix="lognormalizer-parity-",
-            delete=False,
-        ) as handle:
-            handle.write(text)
-            handle.flush()
-            path = Path(handle.name)
-        yield path
+        for name, text in case.auxiliary_rulebases.items():
+            (temp_dir / name).write_text(text, encoding="utf-8")
+
+        path = temp_dir / "main.rulebase"
+        path.write_text(case.rulebase_text, encoding="utf-8")
+        yield path, temp_dir
     finally:
-        if path is None:
-            return
         if keep:
-            print(f"[TEMP] kept rulebase: {path}", file=sys.stderr)
+            print(f"[TEMP] kept rulebase directory: {temp_dir}", file=sys.stderr)
         else:
             try:
-                path.unlink(missing_ok=True)
+                shutil.rmtree(temp_dir)
             except OSError as exc:
-                print(f"[WARN] failed to remove temporary rulebase {path}: {exc}", file=sys.stderr)
+                print(
+                    f"[WARN] failed to remove temporary rulebase directory {temp_dir}: {exc}",
+                    file=sys.stderr,
+                )
 
 
 def run_process(
@@ -515,8 +526,14 @@ def run_process(
     )
 
 
-def run_c(config: Configuration, rulebase_path: Path, message: str) -> ProcessOutput:
+def run_c(
+    config: Configuration,
+    rulebase_path: Path,
+    rulebase_search_dir: Path,
+    message: str,
+) -> ProcessOutput:
     env = dict(os.environ)
+    env["LIBLOGNORM_RULEBASES"] = str(rulebase_search_dir)
     if config.c_libdir is not None:
         existing = env.get("LD_LIBRARY_PATH", "")
         entries = [str(config.c_libdir)]
@@ -534,13 +551,22 @@ def run_c(config: Configuration, rulebase_path: Path, message: str) -> ProcessOu
     )
 
 
-def run_csharp(config: Configuration, rulebase_path: Path, message: str) -> ProcessOutput:
+def run_csharp(
+    config: Configuration,
+    rulebase_path: Path,
+    rulebase_search_dir: Path,
+    message: str,
+) -> ProcessOutput:
+    env = dict(os.environ)
+    env["DeltaZulu.Normalize_RULEBASES"] = str(rulebase_search_dir)
+    env["LIBLOGNORM_RULEBASES"] = str(rulebase_search_dir)
+
     return run_process(
         "C# port",
         [str(config.dotnet), str(config.csharp_cli_dll), "-r", str(rulebase_path)],
         message=message,
         cwd=config.tests_dir,
-        env=None,
+        env=env,
         timeout_seconds=config.timeout_seconds,
     )
 
@@ -599,14 +625,27 @@ def execute_cases(config: Configuration, cases: Sequence[TestCase]) -> RunSummar
         csharp_result: ProcessOutput | None = None
         errors: list[ExecutionError] = []
 
-        with temporary_rulebase(case.rulebase_text, keep=config.keep_temp) as rulebase_path:
+        with temporary_rulebase(case, keep=config.keep_temp) as (
+            rulebase_path,
+            rulebase_search_dir,
+        ):
             try:
-                c_result = run_c(config, rulebase_path, case.message)
+                c_result = run_c(
+                    config,
+                    rulebase_path,
+                    rulebase_search_dir,
+                    case.message,
+                )
             except ExecutionError as exc:
                 errors.append(exc)
 
             try:
-                csharp_result = run_csharp(config, rulebase_path, case.message)
+                csharp_result = run_csharp(
+                    config,
+                    rulebase_path,
+                    rulebase_search_dir,
+                    case.message,
+                )
             except ExecutionError as exc:
                 errors.append(exc)
 
