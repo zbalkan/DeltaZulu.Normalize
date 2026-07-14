@@ -70,7 +70,6 @@ This is a **direct port of the v2 engine only**:
 ## Building and testing
 
 ```shell
-cd csharp
 dotnet build DeltaZulu.Normalize.slnx
 dotnet test tests/DeltaZulu.Normalize.Tests
 ```
@@ -180,6 +179,11 @@ that audit, and which are outright new capabilities with no C equivalent.
 - The `cef` motif rejects a message ending in a dangling, unescaped
   trailing backslash inside the last extension value, where the C engine
   accepts it but copies an out-of-bounds byte into the extracted value.
+- With `string` parser `option.dashIsEmpty=true`, only an unquoted `-` is
+  treated as an empty value. A quoted dash (`"-"`) is parsed as the literal
+  dash when the surrounding rule permits quoted strings, matching upstream
+  liblognorm behavior and avoiding the older parity bug where quoted dashes
+  could be collapsed to empty values.
 
 ## LogCluster.NET pattern discovery CLI
 
@@ -188,10 +192,18 @@ This repository also includes `logcluster`, a batch log pattern mining tool that
 Example:
 
 ```sh
-dotnet run --project tools/LogCluster.Cli -- -s 2 /path/to/logs
+dotnet run --project src/tools/LogCluster.Cli -- -s 2 /path/to/logs
 ```
 
-The CLI reads log lines from files, directories, or standard input. It prints each candidate in both LogCluster wildcard form and suggested liblognorm rule form; use `--json` for machine-readable output or `--verbose` to inspect gap samples and parser confidence. Parser suggestions are limited to motifs implemented by this repository (`ipv4`, `ipv6`, `mac48`, `date-iso`, `number`, `float`, `word`, and `rest`). Generated rules are suggestions for human review, not authoritative rulebase changes.
+The CLI reads log lines from files, directories, standard input, or one explicit `--message`. It prints each candidate in both LogCluster wildcard form and suggested liblognorm rule form; use `--json` for machine-readable output or `--verbose` to inspect gap samples, parser confidence, warnings, and the mining strategy selected for the run. Parser suggestions are limited to motifs implemented by this repository (`ipv4`, `ipv6`, `mac48`, `date-iso`, `number`, `float`, `word`, and `rest`). Generated rules are suggestions for human review, not authoritative rulebase changes.
+
+Recent mining improvements make the command safer on large inputs and more faithful to the original message text:
+
+- Input is guarded by `--max-records` (default `5000000`) and `--max-input-bytes` (default `2147483648`); exceeding either limit fails fast instead of continuing an unbounded mining pass.
+- The miner chooses between materializing tokenized records and streaming repeat passes from disk based on estimated input size. Use `--materialize` or `--stream` to force either strategy.
+- Candidate ranking can be tuned with `--weight-support`, `--weight-anchor`, `--weight-gaps`, and `--weight-specificity`. Single-anchor variants can be merged with the LogCluster-style `--wweight-threshold` heuristic, and shifted prefix/suffix variants are merged so equivalent structures do not split into duplicate candidates.
+- Rendered LogCluster patterns and suggested rules preserve the original delimiters observed between tokens (for example tabs, commas, and pipes rather than normalizing everything to a single space). Candidates with unresolved internal gaps are labeled as structural sketches instead of being presented as directly executable liblognorm rules.
+- Pass `--outliers` to count lines that match no surviving candidate and print bounded samples (`--max-outlier-samples`, default `20`); JSON output includes the outlier count and samples when this mode is enabled.
 
 ## License
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FDeltaZulu-OU%2FDeltaZulu.Normalize.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FDeltaZulu-OU%2FDeltaZulu.Normalize?ref=badge_large)

@@ -94,11 +94,14 @@ time.
 ### Audit findings (oversights, not decisions — flagged, not yet fixed)
 
 - Missing test coverage for several motif options that exist in the code but
-  aren't exercised: `v2-iptables` (no C# tests at all), `name-value-list`
-  custom `separator`/`assignator`/`ignore_whitespaces` and quoted values,
-  `checkpoint-lea` quoting/`terminator`, `number`/`hexnumber` `maxval`,
-  `string` `option.dashIsEmpty` positive case and `matching.mode:"lazy"`,
-  and `op-quoted-string`'s `escape` option.
+  aren't exercised by direct C# unit tests: `v2-iptables` (still covered only
+  through the parity harness), some `name-value-list` custom
+  `separator`/`assignator`/`ignore_whitespaces` combinations,
+  `checkpoint-lea` quoting/`terminator`, `number`/`hexnumber` `maxval`, and
+  `op-quoted-string`'s `escape` option. Recent tests now pin the previously
+  listed `string` `option.dashIsEmpty` and `matching.mode:"lazy"` cases,
+  including the upstream-compatible distinction between unquoted `-` as empty
+  and quoted `"-"` as a literal dash.
 
 ## 2. Rulebase loader / v2 syntax
 
@@ -160,6 +163,11 @@ time.
 
 ### New capability (not a deviation — no C equivalent to compare against)
 
+- **Parity harness include materialization.** The development-only
+  `scratch/parity_check.py` now materializes include chains before replaying
+  extracted upstream fixtures, so include-heavy parity cases compare the same
+  effective rulebase on both engines instead of depending on transient working
+  directories.
 - **Directory-tree rulebase loading** (`LoadSamplesFromDirectory`, a
   directory named by `include=`, deterministic ordinal ordering, hidden-file
   skipping, no prefix leakage between files). Confirmed by reading
@@ -281,7 +289,7 @@ and running the real C library)
   abort, single-".." unwrap, unnamed-field drop) are ported onto the
   collector unchanged.
 
-## 4. API, error codes, `annotate=`, CLI, and test-suite breadth
+## 4. API, error codes, `annotate=`, CLI, LogCluster.NET, and test-suite breadth
 
 ### Confirmed (already documented, verified accurate)
 
@@ -348,6 +356,11 @@ and running the real C library)
   historical `usrdef_nested_segfault.sh` regression, dotted/nested-IP
   variants) is much thinner in C# (1 test) than upstream (9 dedicated
   fixtures).
+
+
+### LogCluster.NET documentation update
+
+The LogCluster.NET tool has grown beyond the original short README note. It now documents and exposes the large-input safety guard (`--max-records`, `--max-input-bytes`), materialize-vs-stream mining strategy controls (`--materialize`, `--stream`), tunable score weights, low-diversity single-anchor merging via `--wweight-threshold`, shifted-candidate merging, delimiter-preserving rendering, unresolved-gap rule warnings, and optional outlier reporting (`--outliers`, `--max-outlier-samples`). These are C# tool capabilities rather than liblognorm normalization semantics, so they are intentionally summarized here instead of treated as upstream deviations.
 
 ## Summary: what to do with this
 
