@@ -11,13 +11,23 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 
-TESTS_DIR = "/home/user/DeltaZulu.Normalize/tests"
-C_BIN = "/home/user/DeltaZulu.Normalize/src/lognormalizer"
-C_LIBDIR = "/home/user/DeltaZulu.Normalize/src/.libs"
-CSHARP_CLI_DLL = "/home/user/DeltaZulu.Normalize/csharp/tools/LogNormalizer.Cli/bin/Debug/net10.0/lognormalizer.dll"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+TESTS_DIR = os.environ.get("PARITY_TESTS_DIR", str(REPO_ROOT / "tests"))
+C_BIN = os.environ.get(
+    "PARITY_C_BIN",
+    shutil.which("lognormalizer") or str(REPO_ROOT.parent / "src" / "lognormalizer"),
+)
+C_LIBDIR = os.environ.get("PARITY_C_LIBDIR", str(Path(C_BIN).resolve().parent / ".libs"))
+CSHARP_CLI_DLL = os.environ.get(
+    "PARITY_CSHARP_CLI_DLL",
+    str(REPO_ROOT / "src" / "tools" / "LogNormalizer.Cli" / "bin" / "Debug" / "net10.0" / "lognormalizer.dll"),
+)
 
 SKIP_FILES = {"exec.sh", "options.sh"}
 # constructs / features intentionally out of scope for this port or the harness
@@ -70,6 +80,7 @@ def run_c(rulebase_text, message) -> str:
         p = subprocess.run(
             [C_BIN, "-r", rb_path, "-e", "json"],
             input=message + "\n", capture_output=True, text=True, env=env, timeout=10,
+            cwd=TESTS_DIR,
         )
         if p.returncode != 0:
             raise RuntimeError(f"C binary exited {p.returncode}: {p.stderr.strip()}")
