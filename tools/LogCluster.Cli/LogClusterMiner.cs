@@ -365,7 +365,11 @@ internal sealed class PatternCandidate(CandidateKey key, int[] anchors)
             parts.Add(EscapeLiteral(dictionary[anchors[i]]));
         }
         AddRuleGap(parts, gaps[^1], ref field);
-        return string.Join(' ', parts);
+        // Tokenization only records whitespace as a boundary, not its exact run (tabs, repeated
+        // spaces, ...); joining with a literal ASCII space would reject any record whose original
+        // delimiter differs. `%-:whitespace%` is liblognorm's own motif for a variable-width,
+        // unnamed whitespace run, so it reproduces the boundary faithfully instead of guessing.
+        return string.Join("%-:whitespace%", parts);
     }
 }
 
@@ -432,9 +436,9 @@ internal sealed record TokenizedRecord(long SequenceNumber, int[] Tokens)
         return tokenized.ToArray();
     }
 
-    // Word boundaries collapse any run of whitespace (tabs, repeated spaces, ...) into a single split point,
-    // and the original separator is discarded. Rendered rules/patterns rejoin tokens with a single ASCII
-    // space, so they are a best-effort approximation for records whose delimiters are not a single space.
+    // Word boundaries collapse any run of whitespace (tabs, repeated spaces, ...) into a single split point;
+    // the original separator width is discarded. RenderRule compensates with the `whitespace` motif, but
+    // the human-readable LogClusterPattern is display-only and always rejoins with a single ASCII space.
     private static int[] Tokenize(string message, TokenDictionary dictionary)
     {
         var tokens = new List<int>();
