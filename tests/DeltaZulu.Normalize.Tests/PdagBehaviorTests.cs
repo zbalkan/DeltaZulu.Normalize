@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using static DeltaZulu.Normalize.Tests.TestHelpers;
 
 namespace DeltaZulu.Normalize.Tests;
@@ -154,6 +155,36 @@ public class PdagBehaviorTests
         AssertJsonEquals("""{ ".": "XY7azl704-84a39894783423467a33f5b48bccd23c-a0n63i2", "resta": " LWL" }""",
             TestHelpers.Normalize(rb, "Rule-ID: XY7azl704-84a39894783423467a33f5b48bccd23c-a0n63i2 LWL").Json);
     }
+
+    [TestMethod]
+    public void CompiledPdagBinary_RoundTripsSnapshotForPersistence()
+    {
+        const string rb = """
+            type=@pair:%left:number{ "format":"number" }%:%right:hexnumber%
+            rule=:hello %name:string{ "matching.permitted":[{"chars":"abcdefghijklmnopqrstuvwxyz"}], "matching.mode":"lazy" }% %.:@pair% %tail:char-to:!%!
+            rule=:json %payload:json{ "skip.empty":"on" }%
+            """;
+
+        var source = new LogNormContext();
+        var errors = new List<string>();
+        source.ErrorCallback = errors.Add;
+        Assert.AreEqual(0, source.LoadSamplesFromString(rb), string.Join("; ", errors));
+
+        using var buffer = new MemoryStream();
+        source.ExportCompiledPdag(buffer);
+        Assert.IsTrue(buffer.Length > 0);
+
+        buffer.Position = 0;
+        var restored = new LogNormContext();
+        restored.ImportCompiledPdag(buffer);
+
+        Assert.AreEqual(0, restored.Normalize("hello abc 123:0xff keep this!", out JsonObject roundTripped));
+        AssertJsonEquals("""{ "name":"abc", "left":123, "right":"0xff", "tail":"keep this" }""", roundTripped);
+
+        Assert.AreEqual(0, restored.Normalize("json {\"a\":1}", out JsonObject jsonRoundTripped));
+        AssertJsonEquals("""{ "payload": { "a": 1 } }""", jsonRoundTripped);
+    }
+
 
     [TestMethod]
     public void Prefix_LineIsPrependedToEveryRule()

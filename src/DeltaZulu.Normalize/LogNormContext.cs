@@ -89,6 +89,47 @@ public sealed class LogNormContext
         return (called, backtracked);
     }
 
+
+    /// <summary>
+    /// Write the current compiled PDAG snapshot to a binary stream for external persistence.
+    /// The stream remains open after the write completes.
+    /// </summary>
+    public void ExportCompiledPdag(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        CompiledPdagBinary.Write(EnsureCompiled(), stream);
+    }
+
+    /// <summary>Write the current compiled PDAG snapshot to a binary file for external persistence.</summary>
+    public void ExportCompiledPdag(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        using var stream = File.Create(path);
+        ExportCompiledPdag(stream);
+    }
+
+    /// <summary>
+    /// Load a previously exported compiled PDAG snapshot from a binary stream
+    /// and publish it immediately. The stream remains open after the read completes.
+    /// </summary>
+    public void ImportCompiledPdag(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        var snap = CompiledPdagBinary.Read(stream, Options);
+        lock (_pdagLock)
+        {
+            Volatile.Write(ref _snapshot, snap);
+        }
+    }
+
+    /// <summary>Load and publish a previously exported compiled PDAG snapshot from a binary file.</summary>
+    public void ImportCompiledPdag(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        using var stream = File.OpenRead(path);
+        ImportCompiledPdag(stream);
+    }
+
     /// <summary>
     /// Load a rulebase file (must be a v2 rulebase starting with "version=2")
     /// or a directory of rulebase files (loaded recursively, equivalent to

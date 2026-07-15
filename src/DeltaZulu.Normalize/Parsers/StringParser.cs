@@ -469,5 +469,16 @@ internal static class StringParser
         public bool IsPermChar(char c) => (_permChars[c >> 6] & (1UL << (c & 63))) != 0;
 
         public void SetPermChar(int c) => _permChars[c >> 6] |= 1UL << (c & 63);
+
+        public ulong[] ExportPermChars() => (ulong[])_permChars.Clone();
+
+        public void ImportPermChars(ReadOnlySpan<ulong> bits)
+        {
+            if (bits.Length != _permChars.Length)
+            {
+                throw new ArgumentException("String parser bitset must contain exactly four words.", nameof(bits));
+            }
+            bits.CopyTo(_permChars);
+        }
     }
 }
