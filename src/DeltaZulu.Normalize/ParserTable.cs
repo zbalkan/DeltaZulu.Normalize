@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json.Nodes;
 using DeltaZulu.Normalize.Parsers;
 
@@ -28,6 +29,9 @@ internal delegate int ParseFunc(
 /// <summary>Static description of one motif parser type.</summary>
 internal sealed class ParserInfo
 {
+    /// <summary>Whether this parser is part of the public parser catalog.</summary>
+    public bool CatalogExposed { get; init; } = true;
+
     public ConstructFunc? Construct { get; init; }
 
     /// <summary>Parser name as used in the rulebase.</summary>
@@ -37,6 +41,13 @@ internal sealed class ParserInfo
 
     /// <summary>Parser-specific priority (0 = highest .. 255 = lowest / last resort).</summary>
     public int Priority { get; init; }
+
+    /// <summary>Whether this parser needs rulebase configuration to be usable.</summary>
+    public bool RequiresConfiguration { get; init; }
+
+    /// <summary>How suggestion tooling should use this parser.</summary>
+    public LiblognormParserSuggestionUse SuggestionUse { get; init; } =
+        LiblognormParserSuggestionUse.InferFromSample;
 }
 
 /// <summary>
@@ -46,6 +57,9 @@ internal sealed class ParserInfo
 /// </summary>
 internal static class ParserTable
 {
+    internal const string RestParserName = "rest";
+    internal const string WordParserName = "word";
+
     public const byte CustomTypeId = 254;
 
     /// <summary>Priority used for user-defined (custom) types.</summary>
@@ -60,8 +74,8 @@ internal static class ParserTable
 
     public static readonly ParserInfo[] Parsers =
     {
-        new() { Name = "literal", Priority = 4, Construct = LiteralParser.Construct, Parse = LiteralParser.Parse },
-        new() { Name = "repeat", Priority = 4, Construct = RepeatParser.Construct, Parse = RepeatParser.Parse },
+        new() { Name = "literal", Priority = 4, Construct = LiteralParser.Construct, Parse = LiteralParser.Parse, CatalogExposed = false, RequiresConfiguration = true, SuggestionUse = LiblognormParserSuggestionUse.None },
+        new() { Name = "repeat", Priority = 4, Construct = RepeatParser.Construct, Parse = RepeatParser.Parse, CatalogExposed = false, RequiresConfiguration = true, SuggestionUse = LiblognormParserSuggestionUse.None },
         new() { Name = "date-rfc3164", Priority = 8, Construct = DateTimeParsers.ConstructRfc3164, Parse = DateTimeParsers.ParseRfc3164 },
         new() { Name = "date-rfc5424", Priority = 8, Construct = DateTimeParsers.ConstructRfc5424, Parse = DateTimeParsers.ParseRfc5424 },
         new() { Name = "number", Priority = 16, Construct = NumberParsers.ConstructNumber, Parse = NumberParsers.ParseNumber },
@@ -71,9 +85,9 @@ internal static class ParserTable
         new() { Name = "whitespace", Priority = 4, Parse = CoreParsers.ParseWhitespace },
         new() { Name = "ipv4", Priority = 4, Parse = NetworkParsers.ParseIPv4 },
         new() { Name = "ipv6", Priority = 4, Parse = NetworkParsers.ParseIPv6 },
-        new() { Name = "word", Priority = 32, Parse = CoreParsers.ParseWord },
+        new() { Name = WordParserName, Priority = 32, Parse = CoreParsers.ParseWord },
         new() { Name = "alpha", Priority = 32, Parse = CoreParsers.ParseAlpha },
-        new() { Name = "rest", Priority = 255, Parse = CoreParsers.ParseRest },
+        new() { Name = RestParserName, Priority = 255, Parse = CoreParsers.ParseRest, SuggestionUse = LiblognormParserSuggestionUse.FallbackOnly },
         new() { Name = "op-quoted-string", Priority = 64, Construct = CoreParsers.ConstructOpQuotedString, Parse = CoreParsers.ParseOpQuotedString },
         new() { Name = "quoted-string", Priority = 64, Parse = CoreParsers.ParseQuotedString },
         new() { Name = "date-iso", Priority = 8, Parse = DateTimeParsers.ParseIsoDate },
@@ -88,11 +102,93 @@ internal static class ParserTable
         new() { Name = "v2-iptables", Priority = 4, Parse = StructuredParsers.ParseV2IpTables },
         new() { Name = "name-value-list", Priority = 8, Construct = StructuredParsers.ConstructNameValue, Parse = StructuredParsers.ParseNameValue },
         new() { Name = "checkpoint-lea", Priority = 4, Construct = StructuredParsers.ConstructCheckpointLea, Parse = StructuredParsers.ParseCheckpointLea },
-        new() { Name = "string-to", Priority = 32, Construct = CoreParsers.ConstructStringTo, Parse = CoreParsers.ParseStringTo },
-        new() { Name = "char-to", Priority = 32, Construct = CoreParsers.ConstructCharTo, Parse = CoreParsers.ParseCharTo },
-        new() { Name = "char-sep", Priority = 32, Construct = CoreParsers.ConstructCharSeparated, Parse = CoreParsers.ParseCharSeparated },
+        new() { Name = "string-to", Priority = 32, Construct = CoreParsers.ConstructStringTo, Parse = CoreParsers.ParseStringTo, RequiresConfiguration = true, SuggestionUse = LiblognormParserSuggestionUse.None },
+        new() { Name = "char-to", Priority = 32, Construct = CoreParsers.ConstructCharTo, Parse = CoreParsers.ParseCharTo, RequiresConfiguration = true, SuggestionUse = LiblognormParserSuggestionUse.None },
+        new() { Name = "char-sep", Priority = 32, Construct = CoreParsers.ConstructCharSeparated, Parse = CoreParsers.ParseCharSeparated, RequiresConfiguration = true, SuggestionUse = LiblognormParserSuggestionUse.None },
         new() { Name = "string", Priority = 32, Construct = StringParser.Construct, Parse = StringParser.Parse },
     };
+
+    private static readonly CompiledPdag EmptySnapshot = new() {
+        Edges = [],
+        Nodes = [new CompiledNode(0, 0, -1, 0)],
+        Terminals = [],
+        TypeRoots = [],
+    };
+
+    internal static IReadOnlyList<LiblognormParserDescriptor> CatalogParsers { get; } = BuildCatalogParsers();
+
+    private static readonly FrozenDictionary<string, byte> CatalogIdsByName = BuildCatalogIdsByName();
+
+    private static readonly FrozenDictionary<string, LiblognormParserDescriptor> CatalogParsersByName =
+        CatalogParsers.ToFrozenDictionary(p => p.Name, StringComparer.Ordinal);
+
+    internal static bool IsCatalogFullMatch(string parserName, ReadOnlySpan<char> sample)
+    {
+        if (!CatalogIdsByName.TryGetValue(parserName, out var id)
+            || !CatalogParsersByName.TryGetValue(parserName, out var descriptor)
+            || descriptor.RequiresConfiguration)
+        {
+            return false;
+        }
+
+        object? parserData = null;
+        var parserInfo = Parsers[id];
+        if (parserInfo.Construct is { } construct)
+        {
+            var ctx = new LogNormContext();
+            if (construct(ctx, new JsonObject(), out parserData) != 0)
+            {
+                return false;
+            }
+        }
+
+        var input = sample.ToString();
+        var npb = new Npb { Ctx = new LogNormContext(), Snap = EmptySnapshot, Str = input };
+        var offset = 0;
+        JsonNode? value = null;
+        var result = Dispatch(id, npb, ref offset, parserData, parserName: null,
+            out var parsed, wantValue: false, ref value);
+
+        return result == 0 && offset + parsed == input.Length;
+    }
+
+    internal static bool TryGetCatalogParser(string name, out LiblognormParserDescriptor parser) =>
+        CatalogParsersByName.TryGetValue(name, out parser!);
+
+    private static LiblognormParserDescriptor[] BuildCatalogParsers()
+    {
+        var descriptors = new List<LiblognormParserDescriptor>();
+
+        foreach (var parser in Parsers)
+        {
+            if (!parser.CatalogExposed)
+            {
+                continue;
+            }
+
+            descriptors.Add(new LiblognormParserDescriptor(
+                parser.Name,
+                parser.Priority,
+                parser.SuggestionUse,
+                parser.RequiresConfiguration));
+        }
+
+        return descriptors.ToArray();
+    }
+
+    private static FrozenDictionary<string, byte> BuildCatalogIdsByName()
+    {
+        var idsByName = new Dictionary<string, byte>(StringComparer.Ordinal);
+        for (var i = 0; i < Parsers.Length; i++)
+        {
+            if (Parsers[i].CatalogExposed)
+            {
+                idsByName.Add(Parsers[i].Name, (byte)i);
+            }
+        }
+
+        return idsByName.ToFrozenDictionary(StringComparer.Ordinal);
+    }
 
     /// <summary>Number of switch cases in <see cref="Dispatch"/> (test guard).</summary>
     internal const int DispatchCaseCount = 32;
