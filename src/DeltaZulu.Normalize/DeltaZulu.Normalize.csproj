@@ -2,7 +2,16 @@
   <PropertyGroup>
     <RootNamespace>DeltaZulu.Normalize</RootNamespace>
     <AssemblyName>DeltaZulu.Normalize</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>DeltaZulu.Normalize</PackageId>
     <Description>C# port of the DeltaZulu.Normalize v2 PDAG log normalization engine: parses unstructured log text into structured JSON using a rulebase compiled into a parse DAG.</Description>
+    <PackageProjectUrl>https://github.com/DeltaZulu-OU/DeltaZulu.Normalize</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DeltaZulu-OU/DeltaZulu.Normalize</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>log normalization;log parsing;liblognorm;PDAG</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression></PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <TieredCompilation>true</TieredCompilation>
     <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
@@ -10,5 +19,9 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="DeltaZulu.Normalize.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\docs\PACKAGE_README.md" Pack="true" PackagePath="README.md" />
+    <None Include="..\..\LICENSE.txt" Pack="true" PackagePath="LICENSE.txt" />
   </ItemGroup>
 </Project>

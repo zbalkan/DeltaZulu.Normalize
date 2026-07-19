@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-pack:
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE_OUTPUT: ${{ github.workspace }}/artifacts/packages
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - id: version
+        name: Read and validate source version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(dotnet msbuild src/DeltaZulu.Normalize/DeltaZulu.Normalize.csproj -getProperty:Version -nologo | tail -n 1)"
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "Version '$version' is not a supported SemVer package version." >&2
+            exit 1
+          fi
+          echo "package_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Restore locked dependencies
+        run: dotnet restore DeltaZulu.Normalize.slnx --locked-mode
+
+      - name: Build solution
+        run: dotnet build DeltaZulu.Normalize.slnx --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test tests/DeltaZulu.Normalize.Tests/DeltaZulu.Normalize.Tests.csproj --configuration Release --no-build --no-restore
+
+      - name: Pack library
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
+        run: dotnet pack src/DeltaZulu.Normalize/DeltaZulu.Normalize.csproj --configuration Release --no-build --no-restore --output "$PACKAGE_OUTPUT" /p:PackageVersion="$PACKAGE_VERSION"
+
+      - name: Inspect package contents
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="$PACKAGE_OUTPUT/DeltaZulu.Normalize.$PACKAGE_VERSION.nupkg"
+          unzip -l "$package"
+          unzip -Z1 "$package" | grep -Fx README.md
+          unzip -Z1 "$package" | grep -Fx LICENSE.txt
+          unzip -Z1 "$package" | grep -Fx 'lib/net10.0/DeltaZulu.Normalize.dll'
+          ! unzip -Z1 "$package" | grep -E '(^|/)(DeltaZulu\.Normalize\.Tests|LogNormalizer\.Cli|DeltaZulu\.Normalize\.Benchmarks)(/|\.)'
+
+      - name: Smoke test local package consumer
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          consumer="$RUNNER_TEMP/package-consumer"
+          config="$RUNNER_TEMP/NuGet.Config"
+          mkdir -p "$consumer"
+          dotnet new console --framework net10.0 --output "$consumer" --no-restore
+          cat > "$config" <<EOF_CONFIG
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="candidate" value="$PACKAGE_OUTPUT" />
+            </packageSources>
+          </configuration>
+          EOF_CONFIG
+          dotnet add "$consumer/package-consumer.csproj" package DeltaZulu.Normalize --version "$PACKAGE_VERSION" --no-restore
+          cat > "$consumer/Program.cs" <<'EOF_PROGRAM'
+          using DeltaZulu.Normalize;
+          using System.Text.Json.Nodes;
+
+          var context = new LogNormContext();
+          context.LoadSamplesFromString("""
+              rule=:%host:word% connected from %ip:ipv4%
+              """);
+          int result = context.Normalize("server connected from 192.168.1.1", out JsonObject json);
+          if (result != 0 || json["host"]?.GetValue<string>() != "server")
+          {
+              throw new InvalidOperationException("Package consumer smoke test failed.");
+          }
+          EOF_PROGRAM
+          dotnet restore "$consumer/package-consumer.csproj" --configfile "$config"
+          dotnet run --project "$consumer/package-consumer.csproj" --no-restore
+
+      - name: Upload package candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaZulu.Normalize.${{ steps.version.outputs.package_version }}
+          path: ${{ env.PACKAGE_OUTPUT }}/*.nupkg
+          if-no-files-found: error

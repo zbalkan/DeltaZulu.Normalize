@@ -379,3 +379,4 @@ FodyWeavers.xsd
 
 # Lock file
 packages.lock.json
+!**/packages.lock.json
