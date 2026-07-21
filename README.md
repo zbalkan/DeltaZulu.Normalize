@@ -38,6 +38,16 @@ dotnet build DeltaZulu.Parse.slnx
 dotnet test tests/DeltaZulu.Parse.Tests
 ```
 
+## End-to-end performance benchmarking
+
+Install [`hyperfine`](https://github.com/sharkdp/hyperfine), then run the large-fixture CLI benchmark:
+
+```shell
+python3 scratch/hyperfine_benchmark.py --build
+```
+
+The script generates a deterministic mixed log corpus (200,000 lines by default) with JSON, CEF, key-value, syslog-like, unstructured, and unmatched messages, then benchmarks the Release `lognormalizer` CLI over stdin. If the C `lognormalizer` reference binary is available on `PATH` (or supplied with `--c-bin` / `HYPERFINE_C_BIN`), the same generated fixture is benchmarked against it as a second command. Use `--line-count`, `--fixture-dir`, and `--export-json` to scale the corpus, keep/reuse generated data, or archive hyperfine results.
+
 ## Using the library
 
 ```csharp
